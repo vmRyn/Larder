@@ -144,7 +144,7 @@ export function Preview({
   const isDir = entry?.kind === 'dir' || entry?.symlinkTo === 'dir';
 
   return (
-    <aside className="flex h-full w-full flex-col border-l border-line bg-surface md:w-[420px]">
+    <aside className="flex h-full min-h-0 w-full flex-col border-l border-line bg-surface">
       <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
         <div className="min-w-0">
           <div className="truncate">{name}</div>
@@ -187,7 +187,7 @@ export function Preview({
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-3">
-        {error && <p className="mb-2 text-danger">{error}</p>}
+        {error && <p key={error} className="notice mb-2 text-danger">{error}</p>}
         {image && <img src={query} alt="" className="max-h-full max-w-full object-contain" />}
         {video && <video src={query} controls className="w-full" />}
         {audio && <audio src={query} controls className="w-full" />}

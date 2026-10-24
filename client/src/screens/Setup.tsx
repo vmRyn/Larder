@@ -43,7 +43,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
           Confirm
           <input className="field mt-1" type="password" autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
         </label>
-        {error && <p className="text-danger">{error}</p>}
+        {error && <p key={error} className="notice text-danger">{error}</p>}
         <button className="btn btn-primary" type="submit" disabled={busy}>
           Save and continue
         </button>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { CopyIconButton } from './CopyIconButton';
 import { Icon } from './Icons';
 import { formatStamp } from '../format';
 
@@ -20,7 +21,6 @@ export type ShareLink = {
 
 export function ShareActions({ share, onChange, onRevoke }: { share: ShareLink; onChange: (share: ShareLink) => void; onRevoke: () => void }) {
   const url = `${window.location.origin}/s/${share.id}`;
-  const [copied, setCopied] = useState(false);
   const [qr, setQr] = useState(false);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState(share.note);
@@ -51,20 +51,7 @@ export function ShareActions({ share, onChange, onRevoke }: { share: ShareLink; 
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-xs" title={url}>{url}</span>
-        <button
-          className={`icon-btn grid size-8 shrink-0 place-items-center rounded-control ${copied ? 'bg-select' : 'bg-hover'}`}
-          type="button"
-          aria-label={copied ? 'Copied' : 'Copy link'}
-          title={copied ? 'Copied' : 'Copy link'}
-          onClick={() => {
-            void navigator.clipboard.writeText(url).then(() => {
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1500);
-            });
-          }}
-        >
-          <Icon name="copy" size={16} />
-        </button>
+        <CopyIconButton value={url} />
         <button className={`icon-btn grid size-8 shrink-0 place-items-center rounded-control ${qr ? 'bg-select' : 'bg-hover'}`} type="button" aria-label="QR code" title="QR code" onClick={() => setQr((open) => !open)}>
           <Icon name="link" size={16} />
         </button>
@@ -96,7 +83,7 @@ export function ShareActions({ share, onChange, onRevoke }: { share: ShareLink; 
             <option value="7">Expires in 7 days</option>
             <option value="30">Expires in 30 days</option>
           </select>
-          {error && <p className="text-sm text-danger">{error}</p>}
+          {error && <p key={error} className="notice text-sm text-danger">{error}</p>}
           <div className="flex gap-2">
             <button className="btn" type="button" onClick={() => setEditing(false)}>Cancel</button>
             <button className="btn btn-primary" type="button" onClick={() => void save()}>Save</button>

@@ -16,12 +16,12 @@ A shell stays in SSH. Larder does not open a terminal in the browser.
 
 ## What you can do
 
-- Sign in with an account. The first visit creates the admin. Each person can have view or edit access to a folder, and an optional private Home.
+- Sign in with an account. The first visit creates the admin. Each person can have view or edit access to a folder, or share that access through a group. The higher access is the one that applies. Each person can also have a private vault named after them, such as Ryns Vault.
 - Browse, filter, and search by name, type, size, or date. Search can cover every folder the account can open. Sort by name, date, size, or type, remembered per folder. Show or hide dotfiles.
 - Preview images, audio, video, PDF, and text. Markdown is rendered, and CSV is shown as a table. Edit text in the browser. Video files get a thumbnail when ffmpeg is installed.
 - Upload files, or a whole folder with its structure. Paste a picture from the clipboard. An upload that drops can continue where it stopped. Download a file, or a selection as a zip, and extract a zip in place.
 - Rename, duplicate, copy, and move, including between folders. Delete goes to trash. Trash can be removed automatically after a chosen number of days.
-- Share a file, or a folder as a zip. A link can have a short note, a password, an expiry, and a QR code. You can change those without making a new link, see when it was opened, and save one file out of a shared zip.
+- Share a file, or a folder as a zip. A link can have an address you choose, a short note, a password, an expiry, and a QR code. You can change those without making a new link, see when it was opened, and save one file out of a shared zip. Leave the address blank for a long random link.
 - Invite someone with the folder access you already picked. The invite creates their account. Unused invites stay listed, with their link, until they are used or revoked.
 - On the admin Health page, see free space, memory, processor, network, shares, uploads still in progress, and the activity log. A disk that is nearly full is marked. The activity log keeps the latest 5,000 lines.
 
@@ -91,6 +91,24 @@ sudo systemctl enable --now larder
 ```
 
 The unit file runs `npm start` as that user, with `LARDER_CONFIG=/opt/larder/larder.config.json`.
+
+## Known limits
+
+These are the things still worth handling on a live server.
+
+- An empty server lets the first person who opens it create the admin. Create that account before a tunnel or a VPN is switched on.
+- A share address you choose, such as `saturday`, is short enough to guess. A link with no password is the file. Leave the address blank when the link should be hard to find, and put a password on anything private.
+- The Docker image runs as root. The systemd service runs as the `larder` user.
+- With Caddy or nginx in front, Larder still sees plain HTTP from localhost. The session cookie is marked Secure only when the request Larder itself receives is HTTPS, and the login slowdown is counted against the proxy rather than each visitor.
+- HEIC photos can be previewed only when the server can read them. The length of an audio or video file is shown when `ffprobe` is installed. The download is still the original file.
+
+## Ideas
+
+Not built yet, and useful later: opening a folder over WebDAV, a second step at sign-in, a size limit on a folder grant, and changing permissions on Linux.
+
+A terminal in the browser, editing Office documents, a photo library, and searching inside file contents are outside what Larder is for.
+
+If you hit a bug, or you want one of those, message Ryn on Discord at Rynfreshly.
 
 ## Tests
 

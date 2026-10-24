@@ -49,7 +49,7 @@ export function Health() {
           <h2 className="text-lg">Health</h2>
           <p className="text-sm text-muted">Memory, processor, network, disk space, shares, and uploads still in progress.</p>
         </div>
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && <p key={error} className="notice text-sm text-danger">{error}</p>}
         {health && (
           <>
             <div className="grid gap-2 sm:grid-cols-3">

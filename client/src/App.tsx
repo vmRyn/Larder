@@ -4,6 +4,7 @@ import { formatBytes } from './format';
 import { Dialog } from './components/Dialog';
 import { ContextMenu, menuItems } from './components/ContextMenu';
 import { Icon } from './components/Icons';
+import { NavRail, Presence } from './motion';
 import { Activity, Users } from './screens/People';
 import { Health } from './screens/Health';
 import { About } from './screens/About';
@@ -135,7 +136,7 @@ export function App() {
 
   const sidebarBody = (
     <aside className="flex h-full w-[248px] flex-col border-r border-split bg-page">
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
+      <NavRail className="min-h-0 flex-1 overflow-auto px-2 py-2">
         {ready.roots.map((item) => {
           const used = item.freeBytes != null && item.totalBytes ? Math.min(1, Math.max(0, (item.totalBytes - item.freeBytes) / item.totalBytes)) : null;
           const low = item.freeBytes != null && item.totalBytes != null && item.totalBytes > 0 && item.freeBytes / item.totalBytes < 0.1;
@@ -204,8 +205,8 @@ export function App() {
             <span className="truncate">{item.path || ready.roots.find((rootItem) => rootItem.id === item.root)?.name}</span>
           </button>
         ))}
-      </div>
-      <div className="px-2 py-2">
+      </NavRail>
+      <NavRail className="px-2 py-2">
         {root && root.access === 'edit' && (
           <button className="nav-item" data-active={page === 'files' && trash} type="button" onClick={() => { setTrash(true); setPage('files'); setSidebar(false); }}>
             <Icon name="trash" />
@@ -236,7 +237,7 @@ export function App() {
           <Icon name="info" />
           <span>About</span>
         </button>
-      </div>
+      </NavRail>
     </aside>
   );
 
@@ -279,20 +280,14 @@ export function App() {
           <button className="btn" type="button" onClick={() => setMenu((open) => !open)}>
             {ready.user.displayName}
           </button>
-          {menu && (
-            <div className="absolute right-0 z-30 mt-1 w-44 rounded-control border border-split bg-surface p-1 shadow-[var(--shadow-pop)]">
-              <button className="block w-full rounded-control px-2 py-2 text-left hover:bg-hover" type="button" onClick={() => { setMenu(false); setPasswordOpen(true); }}>
-                Change password
-              </button>
-              <button
-                className="block w-full rounded-control px-2 py-2 text-left hover:bg-hover"
-                type="button"
-                onClick={() => void api('/api/logout', { method: 'POST' }).then(() => setSession({ state: 'login' }))}
-              >
-                Log out
-              </button>
-            </div>
-          )}
+          <Presence open={menu} className="pop pop-end absolute right-0 z-30 mt-1 w-44 rounded-control border border-split bg-surface p-1 shadow-[var(--shadow-pop)]">
+            <button className="nav-item" type="button" onClick={() => { setMenu(false); setPasswordOpen(true); }}>
+              Change password
+            </button>
+            <button className="nav-item" type="button" onClick={() => void api('/api/logout', { method: 'POST' }).then(() => setSession({ state: 'login' }))}>
+              Log out
+            </button>
+          </Presence>
         </div>
       </header>
       {ready.warnings.length > 0 && (
@@ -307,6 +302,7 @@ export function App() {
             <div onMouseDown={(event) => event.stopPropagation()}>{sidebarBody}</div>
           </div>
         )}
+        <div key={page} className="page-enter flex min-h-0 min-w-0 flex-1 flex-col">
         {page === 'files' && root && (
           <Explorer
             rootId={root.id}
@@ -348,31 +344,33 @@ export function App() {
             }}
           />
         )}
+        </div>
       </div>
-      {placeMenu && (
-        <ContextMenu
-          x={placeMenu.x}
-          y={placeMenu.y}
-          onClose={() => setPlaceMenu(null)}
-          items={menuItems([
-            [{ icon: 'open', label: 'Open', onSelect: () => openPlace(placeMenu.root, placeMenu.path) }],
-            [placeMenu.unpin ? { icon: 'pin', label: 'Unpin', onSelect: () => void toggleFavorite(placeMenu.root, placeMenu.path) } : null],
-          ])}
-        />
-      )}
-      {passwordOpen && (
-        <Dialog title="Change password" onClose={() => setPasswordOpen(false)}>
+      <ContextMenu
+        open={placeMenu != null}
+        x={placeMenu?.x ?? 0}
+        y={placeMenu?.y ?? 0}
+        onClose={() => setPlaceMenu(null)}
+        items={
+          placeMenu
+            ? menuItems([
+                [{ icon: 'open', label: 'Open', onSelect: () => openPlace(placeMenu.root, placeMenu.path) }],
+                [placeMenu.unpin ? { icon: 'pin', label: 'Unpin', onSelect: () => void toggleFavorite(placeMenu.root, placeMenu.path) } : null],
+              ])
+            : []
+        }
+      />
+      <Dialog title="Change password" open={passwordOpen} onClose={() => setPasswordOpen(false)}>
           <form className="space-y-3" onSubmit={(event) => void changePassword(event)}>
             <input className="field" type="password" placeholder="Current password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
             <input className="field" type="password" placeholder="New password" value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} />
             <p className="text-sm text-muted">Other browsers signed in as you will be signed out.</p>
-            {passwordError && <p className="text-danger">{passwordError}</p>}
+            {passwordError && <p key={passwordError} className="notice text-danger">{passwordError}</p>}
             <button className="btn btn-primary" type="submit">
               Save
             </button>
           </form>
-        </Dialog>
-      )}
+      </Dialog>
     </div>
   );
 }

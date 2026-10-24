@@ -51,7 +51,7 @@ export function Shared({
           <p className="text-sm text-muted">{shares.length === 1 ? '1 link' : `${shares.length} links`}</p>
         </div>
         <input className="field max-w-xs" value={filter} placeholder="Filter links" onChange={(event) => setFilter(event.target.value)} />
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && <p key={error} className="notice text-sm text-danger">{error}</p>}
         <ul className="flex flex-col gap-2">
           {shown.map((share) => {
             const rootName = roots.find((item) => item.id === share.root)?.name ?? share.root;

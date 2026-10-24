@@ -2,8 +2,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, api, type Entry, type Favorite, type RootInfo, type TrashItem } from '../api';
 import { Dialog } from '../components/Dialog';
+import { Presence } from '../motion';
 import { ContextMenu, menuItems, type ContextIcon, type ContextItem } from '../components/ContextMenu';
 import { Icon, iconFor, isAudioName, isImageName, isVideoName, type IconName } from '../components/Icons';
+import { CopyIconButton } from '../components/CopyIconButton';
 import { ShareActions, type ShareLink } from '../components/ShareActions';
 import { Preview } from '../components/Preview';
 import { fromDataTransfer } from '../drop';
@@ -106,7 +108,9 @@ export function Explorer({
     | { type: 'restore'; id: string }
     | { type: 'share'; path: string; name: string; password: string; days: string; note: string; address: string; url: string; error: string; shares: ShareLink[]; folder: boolean; shareRoot: string }
   >(null);
-  const [copiedLink, setCopiedLink] = useState('');
+  const previewHold = useRef<{ path: string; root: string; entry: Entry | null } | null>(null);
+  const uploadHold = useRef<{ label: string; ratio: number } | null>(null);
+  const bannerHold = useRef('');
   const parentRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -116,6 +120,13 @@ export function Explorer({
   const [nav, setNav] = useState({ back: false, forward: false });
   const [newOpen, setNewOpen] = useState(false);
   const [menu, setMenu] = useState<null | { x: number; y: number; kind: 'row' | 'blank' | 'trash'; path?: string; id?: string }>(null);
+  const folderKey = `${rootId}|${path}|${trash ? '1' : '0'}|${search?.q ?? ''}`;
+  const [folderSeen, setFolderSeen] = useState(folderKey);
+  const [folderTick, setFolderTick] = useState(0);
+  if (folderSeen !== folderKey) {
+    setFolderSeen(folderKey);
+    setFolderTick((tick) => tick + 1);
+  }
 
   const load = useCallback(async () => {
     if (trash) {
@@ -170,6 +181,11 @@ export function Explorer({
   const pinned = favorites.some((item) => item.root === rootId && item.path === path);
   const one = rows.find((row) => row.path === selected[0]);
   const previewEntry = rows.find((row) => row.path === preview) ?? null;
+  if (preview) previewHold.current = { path: preview, root: previewRoot, entry: previewEntry };
+  if (upload) uploadHold.current = upload;
+  if (banner) bannerHold.current = banner;
+  const previewShown = preview ? { path: preview, root: previewRoot, entry: previewEntry } : previewHold.current;
+  const uploadShown = upload ?? uploadHold.current;
 
   function choose(row: Row, event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) {
     if (event.shiftKey && anchor) {
@@ -389,13 +405,6 @@ export function Explorer({
     });
   }
 
-  function copyShareLink(url: string) {
-    void navigator.clipboard.writeText(url).then(() => {
-      setCopiedLink(url);
-      window.setTimeout(() => setCopiedLink((current) => (current === url ? '' : current)), 1500);
-    });
-  }
-
   async function chooseMoveRoot(id: string) {
     if (dialog?.type !== 'move' || dialog.destRoot === id) return;
     const data = await api<{ entries: Entry[] }>(`/api/list?root=${encodeURIComponent(id)}&path=`);
@@ -542,8 +551,8 @@ export function Explorer({
   const crumbs = path ? path.split('/') : [];
 
   function contextMenu() {
-    if (!menu) return null;
     const close = () => setMenu(null);
+    if (!menu) return <ContextMenu open={false} x={0} y={0} items={[]} onClose={close} />;
     if (menu.kind === 'trash') {
       const id = menu.id;
       return (
@@ -680,7 +689,7 @@ export function Explorer({
     return (
       <div key={folderPath || 'root'}>
         <div
-          className={`flex items-center rounded-control ${chosen ? 'bg-select' : blocked ? '' : 'hover:bg-hover'} ${blocked ? 'opacity-40' : ''}`}
+          className={`surface-hover flex items-center rounded-control ${chosen ? 'bg-select' : blocked ? '' : 'hover:bg-hover'} ${blocked ? 'opacity-40' : ''}`}
           style={{ paddingLeft: 4 + depth * 16 }}
         >
           <button
@@ -750,18 +759,16 @@ export function Explorer({
           {canEdit && (
             <div className="relative">
               <Cmd icon="new" label="New" onClick={() => setNewOpen((open) => !open)} />
-              {newOpen && (
-                <div className="absolute left-0 z-20 mt-1 w-40 rounded-control border border-split bg-surface p-1 shadow-[var(--shadow-pop)]">
-                  <button className="nav-item" type="button" onClick={() => { setNewOpen(false); setDialog({ type: 'folder', value: '' }); }}>
-                    <Icon name="folder" size={16} />
-                    New folder
-                  </button>
-                  <button className="nav-item" type="button" onClick={() => { setNewOpen(false); setDialog({ type: 'file', value: '' }); }}>
-                    <Icon name="file" size={16} />
-                    New file
-                  </button>
-                </div>
-              )}
+              <Presence open={newOpen} className="pop absolute left-0 z-20 mt-1 w-40 rounded-control border border-split bg-surface p-1 shadow-[var(--shadow-pop)]">
+                <button className="nav-item" type="button" onClick={() => { setNewOpen(false); setDialog({ type: 'folder', value: '' }); }}>
+                  <Icon name="folder" size={16} />
+                  New folder
+                </button>
+                <button className="nav-item" type="button" onClick={() => { setNewOpen(false); setDialog({ type: 'file', value: '' }); }}>
+                  <Icon name="file" size={16} />
+                  New file
+                </button>
+              </Presence>
             </div>
           )}
           {canEdit && <Cmd icon="upload" label="Upload" onClick={() => fileInput.current?.click()} />}
@@ -969,13 +976,17 @@ export function Explorer({
             <button className="btn" type="submit">Search</button>
           </form>
         </div>
-        {banner && <p className="border-b border-danger/40 bg-danger/15 px-3 py-2">{banner}</p>}
+        <Presence open={banner !== ''} className="reveal reveal-down" ms={180}>
+          <p className="border-b border-danger/40 bg-danger/15 px-3 py-2">{banner || bannerHold.current}</p>
+        </Presence>
         {search && (
           <p className="px-3 py-2 text-muted">
             Results for &ldquo;{search.q}&rdquo;. {search.rows.length === 500 ? 'Showing 500. Narrow the name.' : ''}
           </p>
         )}
-        {dropOver && <p className="px-3 py-6 text-center text-accent">Drop to upload into {path || rootName}</p>}
+        <Presence open={dropOver} className="reveal reveal-down" ms={160}>
+          <p className="bg-accent/10 px-3 py-6 text-center text-accent">Drop to upload into {path || rootName}</p>
+        </Presence>
         {!icons && (
         <div className="grid grid-cols-[minmax(0,1fr)_72px_120px_64px] border-b border-line px-3 py-1 text-xs text-muted">
           {(['name', 'size', 'mtime', 'type'] as const).map((key) => (
@@ -992,13 +1003,14 @@ export function Explorer({
         </div>
         )}
         <div ref={parentRef} className="min-h-0 flex-1 overflow-auto">
+          <div key={folderKey} className={folderTick > 0 ? 'folder-enter' : undefined}>
           {trash ? (
             <ul>
               {trashItems.map((item) => (
                 <li
                   key={item.id}
                   data-row
-                  className="flex items-center justify-between gap-3 border-b border-line px-3 py-2"
+                  className="surface-hover flex items-center justify-between gap-3 border-b border-line px-3 py-2 hover:bg-hover"
                   onContextMenu={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1046,7 +1058,7 @@ export function Explorer({
                     key={`${row.rootId ?? rootId}|${row.path}`}
                     type="button"
                     data-row
-                    className={`flex flex-col gap-2 rounded-control border p-2 text-left ${active ? 'border-accent bg-select' : 'border-line hover:bg-hover'}`}
+                    className={`surface-hover flex flex-col gap-2 rounded-control border p-2 text-left ${active ? 'border-accent bg-select' : 'border-line hover:bg-hover'}`}
                     onClick={(event) => choose(row, event)}
                     onDoubleClick={() => openRow(row)}
                     onContextMenu={(event) => {
@@ -1116,7 +1128,7 @@ export function Explorer({
                       setMenu({ x: event.clientX, y: event.clientY, kind: 'row', path: row.path });
                     }}
                     data-row
-                    className={`absolute right-0 left-0 grid h-10 grid-cols-[minmax(0,1fr)_72px_120px_64px] items-center px-3 ${active ? 'bg-select' : 'hover:bg-hover'}`}
+                    className={`surface-hover absolute right-0 left-0 grid h-10 grid-cols-[minmax(0,1fr)_72px_120px_64px] items-center px-3 ${active ? 'bg-select' : 'hover:bg-hover'}`}
                     style={{ top: virtual.start }}
                   >
                     <span className="flex min-w-0 items-center gap-2">
@@ -1154,6 +1166,7 @@ export function Explorer({
               })}
             </div>
           )}
+          </div>
         </div>
         {one && !trash && (
           <div className="flex items-center gap-3 border-t border-line px-3 py-2 font-mono text-xs text-muted">
@@ -1169,19 +1182,21 @@ export function Explorer({
             </button>
           </div>
         )}
-        {upload && (
-          <div className="border-t border-line px-3 py-2">
-            <div className="mb-1 flex justify-between text-xs">
-              <span>{upload.label}</span>
-              <button className="icon-btn" type="button" onClick={() => abortUpload.current?.abort()}>
-                Cancel
-              </button>
+        <Presence open={upload != null} className="reveal reveal-up" ms={200}>
+          {uploadShown && (
+            <div className="border-t border-line px-3 py-2">
+              <div className="mb-1 flex justify-between text-xs">
+                <span>{uploadShown.label}</span>
+                <button className="icon-btn" type="button" onClick={() => abortUpload.current?.abort()}>
+                  Cancel
+                </button>
+              </div>
+              <div className="meter">
+                <span style={{ width: `${Math.round(uploadShown.ratio * 100)}%` }} />
+              </div>
             </div>
-            <div className="h-1 bg-line">
-              <div className="h-1 bg-accent" style={{ width: `${Math.round(upload.ratio * 100)}%` }} />
-            </div>
-          </div>
-        )}
+          )}
+        </Presence>
         {trash && canEdit && (
           <div className="flex flex-wrap items-center gap-2 border-t border-line p-3">
             {admin ? (
@@ -1213,20 +1228,26 @@ export function Explorer({
         )}
       </div>
       {contextMenu()}
-      {preview && (
-        <div className="fixed inset-0 z-20 bg-page md:static md:inset-auto">
-          <Preview
-            root={previewRoot}
-            path={preview}
-            entry={previewEntry}
-            canEdit={canEdit}
-            onClose={() => setPreview(null)}
-            onSaved={() => void load()}
-          />
-        </div>
-      )}
-      {dialog?.type === 'folder' || dialog?.type === 'file' || dialog?.type === 'rename' ? (
-        <Dialog title={dialog.type === 'rename' ? 'Rename' : dialog.type === 'folder' ? 'New folder' : 'New file'} onClose={() => setDialog(null)}>
+      <Presence open={preview != null} className="preview-slot" ms={220}>
+        {previewShown && (
+          <div className="preview-sheet">
+            <Preview
+              root={previewShown.root}
+              path={previewShown.path}
+              entry={previewShown.entry}
+              canEdit={canEdit}
+              onClose={() => setPreview(null)}
+              onSaved={() => void load()}
+            />
+          </div>
+        )}
+      </Presence>
+      <Dialog
+        open={dialog?.type === 'folder' || dialog?.type === 'file' || dialog?.type === 'rename'}
+        title={dialog?.type === 'rename' ? 'Rename' : dialog?.type === 'folder' ? 'New folder' : dialog?.type === 'file' ? 'New file' : ''}
+        onClose={() => setDialog(null)}
+      >
+        {dialog && (dialog.type === 'folder' || dialog.type === 'file' || dialog.type === 'rename') ? (
           <form
             className="space-y-3"
             onSubmit={(event) => {
@@ -1249,10 +1270,15 @@ export function Explorer({
               {dialog.type === 'rename' ? 'Save' : 'Create'}
             </button>
           </form>
-        </Dialog>
-      ) : null}
-      {dialog?.type === 'delete' && (
-        <Dialog title={dialog.count === 1 ? 'Delete 1 item' : `Delete ${dialog.count} items`} onClose={() => setDialog(null)}>
+        ) : null}
+      </Dialog>
+      <Dialog
+        open={dialog?.type === 'delete'}
+        title={dialog?.type === 'delete' ? (dialog.count === 1 ? 'Delete 1 item' : `Delete ${dialog.count} items`) : ''}
+        onClose={() => setDialog(null)}
+      >
+        {dialog?.type === 'delete' && (
+          <>
           <p className="mb-3 text-muted">They can be restored from Trash.</p>
           {dialog.strong && (
             <input className="field mb-3" placeholder={`Type ${dialog.count}`} value={dialog.typed} onChange={(event) => setDialog({ ...dialog, typed: event.target.value })} />
@@ -1271,10 +1297,12 @@ export function Explorer({
           >
             Delete
           </button>
-        </Dialog>
-      )}
-      {dialog?.type === 'empty' && (
-        <Dialog title="Empty trash" onClose={() => setDialog(null)}>
+          </>
+        )}
+      </Dialog>
+      <Dialog open={dialog?.type === 'empty'} title="Empty trash" onClose={() => setDialog(null)}>
+        {dialog?.type === 'empty' && (
+          <>
           <p className="mb-3">This permanently deletes {dialog.count} items.</p>
           <input className="field mb-3" placeholder={`Type ${dialog.count}`} value={dialog.typed} onChange={(event) => setDialog({ ...dialog, typed: event.target.value })} />
           <button
@@ -1290,10 +1318,12 @@ export function Explorer({
           >
             Empty trash
           </button>
-        </Dialog>
-      )}
-      {dialog?.type === 'move' && (
-        <Dialog title="Move or copy" wide onClose={() => setDialog(null)}>
+          </>
+        )}
+      </Dialog>
+      <Dialog open={dialog?.type === 'move'} title="Move or copy" wide onClose={() => setDialog(null)}>
+        {dialog?.type === 'move' && (
+          <>
           <p className="mb-3 truncate text-sm text-muted">{selected.length === 1 ? baseName(selected[0] ?? '') : `${selected.length} items`}</p>
           {places.filter((place) => place.access === 'edit').length > 1 && (
             <div className="mb-3 flex flex-wrap gap-2">
@@ -1355,10 +1385,12 @@ export function Explorer({
               </button>
             </div>
           </div>
-        </Dialog>
-      )}
-      {dialog?.type === 'conflict' && (
-        <Dialog title="Some names are already here" onClose={() => setDialog(null)}>
+          </>
+        )}
+      </Dialog>
+      <Dialog open={dialog?.type === 'conflict'} title="Some names are already here" onClose={() => setDialog(null)}>
+        {dialog?.type === 'conflict' && (
+          <>
           <ul className="mb-3 max-h-40 overflow-auto font-mono text-xs">
             {dialog.items.map((item) => (
               <li key={item.path}>{item.path}</li>
@@ -1372,10 +1404,11 @@ export function Explorer({
               Keep both
             </button>
           </div>
-        </Dialog>
-      )}
-      {dialog?.type === 'share' && (
-        <Dialog title={`Share ${dialog.name}`} wide onClose={() => setDialog(null)}>
+          </>
+        )}
+      </Dialog>
+      <Dialog open={dialog?.type === 'share'} title={dialog?.type === 'share' ? `Share ${dialog.name}` : ''} wide onClose={() => setDialog(null)}>
+        {dialog?.type === 'share' && (
           <div className="flex flex-col gap-3">
             {dialog.folder && <p className="text-sm text-muted">The link downloads a zip of this folder.</p>}
             <label className="block text-sm">
@@ -1399,21 +1432,13 @@ export function Explorer({
                 <option value="30">30 days</option>
               </select>
             </label>
-            {dialog.error && <p className="text-sm text-danger">{dialog.error}</p>}
+            {dialog.error && <p className="notice text-sm text-danger">{dialog.error}</p>}
             {dialog.url && (
               <div>
                 <span className="mb-1 block text-sm text-muted">Link</span>
                 <div className="flex items-center gap-2">
                   <input className="field" readOnly value={dialog.url} onFocus={(event) => event.currentTarget.select()} />
-                  <button
-                    className={`icon-btn grid size-8 shrink-0 place-items-center rounded-control ${copiedLink === dialog.url ? 'bg-select' : 'bg-hover'}`}
-                    type="button"
-                    aria-label={copiedLink === dialog.url ? 'Copied' : 'Copy link'}
-                    title={copiedLink === dialog.url ? 'Copied' : 'Copy link'}
-                    onClick={() => copyShareLink(dialog.url)}
-                  >
-                    <Icon name="copy" size={16} />
-                  </button>
+                  <CopyIconButton value={dialog.url} />
                 </div>
               </div>
             )}
@@ -1474,8 +1499,8 @@ export function Explorer({
               </ul>
             )}
           </div>
-        </Dialog>
-      )}
+        )}
+      </Dialog>
     </div>
   );
 }

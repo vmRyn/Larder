@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { usePresence } from '../motion';
 import { Icon, type IconName } from './Icons';
 
 export type ContextIcon = {
@@ -34,37 +35,46 @@ export function ContextMenu({
   icons,
   items,
   onClose,
+  open = true,
 }: {
   x: number;
   y: number;
   icons?: ContextIcon[];
   items: (ContextItem | 'sep')[];
   onClose: () => void;
+  open?: boolean;
 }) {
+  const { present, phase } = usePresence(open, 160);
+  const held = useRef({ x, y, icons, items });
+  if (open) held.current = { x, y, icons, items };
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   const panel = useRef<HTMLDivElement>(null);
+  const view = held.current;
 
   useLayoutEffect(() => {
     const el = panel.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const left = Math.min(x, window.innerWidth - rect.width - 8);
-    const top = Math.min(y, window.innerHeight - rect.height - 8);
+    const left = Math.min(view.x, window.innerWidth - rect.width - 8);
+    const top = Math.min(view.y, window.innerHeight - rect.height - 8);
     el.style.left = `${Math.max(8, left)}px`;
     el.style.top = `${Math.max(8, top)}px`;
-  }, [x, y, icons, items]);
+  }, [present, phase, view]);
 
   useEffect(() => {
+    if (!present) return;
     const onPointer = (event: MouseEvent) => {
       if (panel.current?.contains(event.target as Node)) return;
-      onClose();
+      closeRef.current();
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      closeRef.current();
     };
-    const close = () => onClose();
+    const close = () => closeRef.current();
     window.addEventListener('mousedown', onPointer);
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('resize', close);
@@ -75,15 +85,15 @@ export function ContextMenu({
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);
     };
-  }, [onClose]);
+  }, [present]);
 
-  if (!icons?.length && !items.length) return null;
+  if (!present || (!view.icons?.length && !view.items.length)) return null;
 
   return createPortal(
-    <div ref={panel} className="ctx" style={{ left: x, top: y }} role="menu" onContextMenu={(event) => event.preventDefault()}>
-      {icons && icons.length > 0 && (
+    <div ref={panel} className="ctx pop" data-phase={phase} style={{ left: view.x, top: view.y }} role="menu" onContextMenu={(event) => event.preventDefault()}>
+      {view.icons && view.icons.length > 0 && (
         <div className="ctx-icons">
-          {icons.map((icon) => (
+          {view.icons.map((icon) => (
             <button
               key={icon.label}
               className="ctx-icon"
@@ -101,7 +111,7 @@ export function ContextMenu({
           ))}
         </div>
       )}
-      {items.map((item, index) =>
+      {view.items.map((item, index) =>
         item === 'sep' ? (
           <div key={index} className="ctx-sep" />
         ) : (

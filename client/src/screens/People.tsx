@@ -348,10 +348,10 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
             </div>
           ))}
         </div>
-        {error && !dialog && !groupDraft && <p className="text-sm text-danger">{error}</p>}
+        {error && !dialog && !groupDraft && <p key={error} className="notice text-sm text-danger">{error}</p>}
         <div className="flex flex-col gap-2">
           {shown.map((account) => (
-            <button key={account.username} type="button" className="rounded-control border border-split bg-surface px-4 py-3 text-left hover:bg-hover" onClick={() => openAccount(account)}>
+            <button key={account.username} type="button" className="surface-hover rounded-control border border-split bg-surface px-4 py-3 text-left hover:bg-hover" onClick={() => openAccount(account)}>
               <div className="flex items-start gap-3">
                 <span className={`grid size-10 shrink-0 place-items-center rounded-control text-sm uppercase ${account.disabled ? 'bg-page text-muted' : 'bg-select'}`}>
                   {(account.displayName || account.username).slice(0, 1)}
@@ -390,8 +390,8 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
         </div>
       </div>
 
-      {dialog && draft && (
-        <Dialog title={dialog === 'new' ? 'New account' : draft.displayName || draft.username} wide onClose={close}>
+      <Dialog open={!!(dialog && draft)} title={dialog === 'new' ? 'New account' : draft?.displayName || draft?.username || ''} wide onClose={close}>
+        {dialog && draft && (
           <div className="flex flex-col gap-3">
             {dialog === 'new' ? (
               <label className="block text-sm">
@@ -501,7 +501,7 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
                 </div>
               </div>
             )}
-            {error && <p className="text-sm text-danger">{error}</p>}
+            {error && <p key={error} className="notice text-sm text-danger">{error}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn" onClick={close}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void save()}>
@@ -509,10 +509,10 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
               </button>
             </div>
           </div>
-        </Dialog>
-      )}
-      {inviteOpen && inviteDraft && (
-        <Dialog title="Invite" wide onClose={() => setInviteOpen(false)}>
+        )}
+      </Dialog>
+      <Dialog open={!!(inviteOpen && inviteDraft)} title="Invite" wide onClose={() => setInviteOpen(false)}>
+        {inviteOpen && inviteDraft && (
           <div className="flex flex-col gap-3">
             {inviteUrl ? (
               <>
@@ -551,7 +551,7 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
                     ))}
                   </div>
                 </div>
-                {error && <p className="text-sm text-danger">{error}</p>}
+                {error && <p key={error} className="notice text-sm text-danger">{error}</p>}
                 <div className="flex justify-end gap-2">
                   <button type="button" className="btn" onClick={() => setInviteOpen(false)}>Cancel</button>
                   <button
@@ -585,10 +585,10 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
               </>
             )}
           </div>
-        </Dialog>
-      )}
-      {groupDraft && (
-        <Dialog title={groupDraft.id ? 'Edit group' : 'New group'} wide onClose={() => setGroupDraft(null)}>
+        )}
+      </Dialog>
+      <Dialog open={!!groupDraft} title={groupDraft?.id ? 'Edit group' : 'New group'} wide onClose={() => setGroupDraft(null)}>
+        {groupDraft && (
           <div className="flex flex-col gap-3">
             <label className="block text-sm">
               <span className="mb-1 block text-muted">Name</span>
@@ -605,7 +605,7 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
                 </div>
               ))}
             </div>
-            {error && <p className="text-sm text-danger">{error}</p>}
+            {error && <p key={error} className="notice text-sm text-danger">{error}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => setGroupDraft(null)}>Cancel</button>
               <button
@@ -628,8 +628,8 @@ export function Users({ you, onChanged }: { you: string; onChanged: () => void }
               </button>
             </div>
           </div>
-        </Dialog>
-      )}
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -694,7 +694,7 @@ function AccessChoice({ value, disabled, onChange }: { value: Access | 'none'; d
           key={option.id}
           type="button"
           disabled={disabled}
-          className={`px-2.5 py-1 text-xs ${value === option.id ? 'bg-accent text-accent-ink' : 'bg-page text-muted hover:bg-hover hover:text-ink'}`}
+          className={`surface-hover px-2.5 py-1 text-xs ${value === option.id ? 'bg-accent text-accent-ink' : 'bg-page text-muted hover:bg-hover hover:text-ink'}`}
           onClick={() => onChange(option.id)}
         >
           {option.label}
@@ -723,7 +723,7 @@ export function Activity() {
   return (
     <div className="min-h-0 flex-1 overflow-auto p-4">
       <h2 className="mb-3 text-lg">Activity</h2>
-      {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+      {error && <p key={error} className="notice mb-3 text-sm text-danger">{error}</p>}
       <div className="flex flex-col gap-1 font-mono text-xs">
         {rows.map((row, index) => (
           <div key={`${row.t}-${index}`} className="grid grid-cols-[160px_100px_120px_1fr] gap-3 border-b border-line py-1 text-muted">

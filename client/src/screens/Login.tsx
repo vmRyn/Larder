@@ -39,7 +39,7 @@ export function Login({ onDone }: { onDone: () => void }) {
           Password
           <input className="field mt-1" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
         </label>
-        {error && <p className="text-danger">{error}</p>}
+        {error && <p key={error} className="notice text-danger">{error}</p>}
         <button className="btn btn-primary" type="submit" disabled={wait > 0}>
           {wait > 0 ? `Wait ${Math.ceil(wait / 1000)}s` : 'Enter'}
         </button>
