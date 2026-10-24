@@ -340,7 +340,7 @@ export function App() {
         {page === 'about' && <About />}
         {page === 'terminal' && (
           <Suspense fallback={<p className="p-6 text-muted">Loading…</p>}>
-            <TerminalPane />
+            <TerminalPane rootId={trash ? '' : rootId} path={trash ? '' : path} />
           </Suspense>
         )}
         {page === 'shared' && (

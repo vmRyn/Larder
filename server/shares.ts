@@ -20,6 +20,7 @@ export type ShareRecord = {
   note: string;
   opens: number;
   lastOpen: string | null;
+  upload?: boolean;
 };
 
 type Store = { shares: ShareRecord[] };
@@ -69,6 +70,7 @@ export type PublicShare = {
   note: string;
   opens: number;
   lastOpen: string | null;
+  upload: boolean;
 };
 
 function publish(share: ShareRecord): PublicShare {
@@ -85,6 +87,7 @@ function publish(share: ShareRecord): PublicShare {
     note: typeof share.note === 'string' ? share.note : '',
     opens: Number.isInteger(share.opens) ? share.opens : 0,
     lastOpen: typeof share.lastOpen === 'string' ? share.lastOpen : null,
+    upload: Boolean(share.upload),
   };
 }
 
@@ -120,18 +123,19 @@ export async function listShares(user: ConfigUser): Promise<PublicShare[]> {
   return store.shares.filter((share) => user.admin || share.owner === user.username).map(publish);
 }
 
-export async function createShare(user: ConfigUser, rootId: string, rel: string, password: string, days: number | null, note = '', address = ''): Promise<PublicShare> {
-  const root = await requireRoot(user, rootId, 'view');
+export async function createShare(user: ConfigUser, rootId: string, rel: string, password: string, days: number | null, note = '', address = '', upload = false): Promise<PublicShare> {
+  const root = await requireRoot(user, rootId, upload ? 'edit' : 'view');
   const located = await locate(root.abs, rel, 'read');
   if (!located.exists || located.outside) throw new ApiError(404, 'not_found', 'That file is not there.');
-  const zip = located.isDir;
-  const fileInfo = zip ? null : await readBytes(root.abs, rel);
+  if (upload && !located.isDir) throw new ApiError(400, 'invalid_name', 'Choose a folder for an upload link.');
+  const zip = upload ? false : located.isDir;
+  const fileInfo = zip || upload ? null : await readBytes(root.abs, rel);
   if (password.length > 200) throw new ApiError(400, 'invalid_name', 'That password is too long.');
   const share: ShareRecord = {
     id: shareAddress(address),
     root: root.id,
     path: rel,
-    name: fileInfo?.name ?? `${path.basename(rel) || 'folder'}.zip`,
+    name: fileInfo?.name ?? (upload ? path.basename(rel) || root.name : `${path.basename(rel) || 'folder'}.zip`),
     owner: user.username,
     passwordHash: password ? await hashPassword(password) : null,
     expires: expiryFromDays(days),
@@ -140,6 +144,7 @@ export async function createShare(user: ConfigUser, rootId: string, rel: string,
     note: cleanNote(note),
     opens: 0,
     lastOpen: null,
+    upload,
   };
   await update((store) => {
     if (store.shares.some((item) => item.id === share.id)) {
@@ -216,11 +221,46 @@ function shareSucceeded(id: string) {
   attempts.delete(id);
 }
 
-export async function describeShare(id: string): Promise<{ name: string; hasPassword: boolean; zip: boolean } | null> {
+export async function describeShare(id: string): Promise<{ name: string; hasPassword: boolean; zip: boolean; upload: boolean } | null> {
   if (!validShareId(id)) return null;
   const share = (await readStore()).shares.find((item) => item.id === id);
   if (!share || (share.expires != null && share.expires <= Date.now())) return null;
-  return { name: share.name, hasPassword: Boolean(share.passwordHash), zip: Boolean(share.zip) };
+  return { name: share.name, hasPassword: Boolean(share.passwordHash), zip: Boolean(share.zip), upload: Boolean(share.upload) };
+}
+
+export async function acceptUpload(
+  id: string,
+  password: string | null,
+  unlocked = false,
+): Promise<{ rootAbs: string; dest: string; name: string; needsPassword: boolean; owner: string; root: string }> {
+  if (!validShareId(id)) throw new ApiError(404, 'not_found', 'This link is not available.');
+  const share = (await readStore()).shares.find((item) => item.id === id);
+  if (!share?.upload || (share.expires != null && share.expires <= Date.now())) {
+    throw new ApiError(404, 'not_found', 'This link is not available.');
+  }
+  if (share.passwordHash && !unlocked) {
+    if (password == null) return { rootAbs: '', dest: '', name: share.name, needsPassword: true, owner: '', root: '' };
+    const wait = shareWait(id);
+    if (wait > 0) throw new ApiError(429, 'rate_limited', 'Try again in a moment.');
+    if (!(await verifyPassword(password, share.passwordHash))) {
+      shareFailed(id);
+      throw new ApiError(401, 'unauthorized', 'That password is wrong.');
+    }
+    shareSucceeded(id);
+  }
+  const owner = findUser(share.owner);
+  if (!owner || owner.disabled) throw new ApiError(404, 'not_found', 'This link is not available.');
+  try {
+    const root = await requireRoot(owner, share.root, 'edit');
+    const located = await locate(root.abs, share.path, 'read');
+    if (!located.exists || located.outside || !located.isDir || !located.real) {
+      throw new ApiError(404, 'not_found', 'This link is not available.');
+    }
+    return { rootAbs: root.abs, dest: share.path, name: share.name, needsPassword: false, owner: share.owner, root: share.root };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) throw error;
+    throw new ApiError(404, 'not_found', 'This link is not available.');
+  }
 }
 
 export async function openShare(
@@ -230,7 +270,7 @@ export async function openShare(
 ): Promise<{ abs: string; name: string; needsPassword: boolean; zipRoot: string; zipPath: string }> {
   if (!validShareId(id)) throw new ApiError(404, 'not_found', 'This link is not available.');
   const share = (await readStore()).shares.find((item) => item.id === id);
-  if (!share || (share.expires != null && share.expires <= Date.now())) {
+  if (!share || share.upload || (share.expires != null && share.expires <= Date.now())) {
     throw new ApiError(404, 'not_found', 'This link is not available.');
   }
   if (share.passwordHash && !unlocked) {

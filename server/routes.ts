@@ -62,7 +62,9 @@ import { heicJpeg, isHeicFile, isVideoFile, makeThumb, makeVideoThumb, mediaDura
 
 const version = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 import { appendUpload, cancelUpload, finishUpload, openUpload, ResumeAt, uploadStatus } from './resume.js';
-import { createShare, describeShare, listShares, openShare, recordOpen, revokeShare, updateShare } from './shares.js';
+import { acceptUpload, createShare, describeShare, listShares, openShare, recordOpen, revokeShare, updateShare } from './shares.js';
+import { assertOpen, clearFolderPassword, clearUnlocks, lockedNames, LockedError, LockDenied, retargetLock, searchHidden, setFolderPassword, unlockFolder } from './locks.js';
+import { folderRealPath, issueTerminalTicket } from './terminal.js';
 import { acceptInvite, createInvite, listInvites, readInvite, revokeInvite } from './invites.js';
 import { sampleHost } from './host.js';
 import { clamCommand } from './scan.js';
@@ -147,6 +149,10 @@ async function signedIn(c: Context): Promise<ConfigUser> {
   return user;
 }
 
+async function opened(c: Context, rootId: string, rel: string, deep = false) {
+  await assertOpen(getCookie(c, COOKIE) ?? '', rootId, rel, deep);
+}
+
 async function admin(c: Context): Promise<ConfigUser> {
   const user = await signedIn(c);
   if (!user.admin) throw new ApiError(403, 'forbidden', 'You need an admin account for that.');
@@ -197,7 +203,12 @@ export function createApp(): Hono<AppEnv> {
   app.onError((error, c) => {
     frameHeaders(c);
     if (error instanceof ApiError) {
-      return c.json({ error: error.message, code: error.code }, error.status as 400);
+      const retryAfterMs = error instanceof LockDenied ? error.retryAfterMs : 0;
+      const lockPath = error instanceof LockedError ? error.lockPath : '';
+      return c.json(
+        { error: error.message, code: error.code, ...(retryAfterMs ? { retryAfterMs } : {}), ...(lockPath ? { path: lockPath } : {}) },
+        error.status as 400,
+      );
     }
     console.error(error);
     return c.json({ error: 'Something went wrong.', code: 'error' }, 500);
@@ -274,7 +285,9 @@ export function createApp(): Hono<AppEnv> {
   });
 
   app.post('/api/logout', async (c) => {
-    await destroySession(getCookie(c, COOKIE));
+    const sessionId = getCookie(c, COOKIE);
+    clearUnlocks(sessionId);
+    await destroySession(sessionId);
     deleteCookie(c, COOKIE, { path: '/' });
     return c.json({ ok: true });
   });
@@ -510,14 +523,53 @@ export function createApp(): Hono<AppEnv> {
   app.get('/api/list', async (c) => {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
-    const listed = await listDirectory(root.abs, c.req.query('path') ?? '', c.req.query('sort') ?? 'name', c.req.query('dir') ?? 'asc');
-    return c.json(listed);
+    const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
+    const listed = await listDirectory(root.abs, rel, c.req.query('sort') ?? 'name', c.req.query('dir') ?? 'asc');
+    const marked = await lockedNames(root.id, listed.path);
+    return c.json({
+      path: listed.path,
+      entries: listed.entries.map((entry) => ({
+        ...entry,
+        locked: (entry.kind === 'dir' || entry.symlinkTo === 'dir') && marked.has(entry.name),
+      })),
+    });
+  });
+
+  app.put('/api/locks', async (c) => {
+    const user = await signedIn(c);
+    const body = await readJson(c);
+    const root = await requireRoot(user, String(body.root ?? ''), 'edit');
+    const rel = String(body.path ?? '');
+    await setFolderPassword(getCookie(c, COOKIE) ?? '', root.id, root.abs, rel, String(body.password ?? ''), String(body.current ?? ''));
+    await logActivity({ user: user.username, action: 'protect', root: root.id, path: rel });
+    return c.json({ ok: true });
+  });
+
+  app.delete('/api/locks', async (c) => {
+    const user = await signedIn(c);
+    const body = await readJson(c);
+    const root = await requireRoot(user, String(body.root ?? ''), 'edit');
+    const rel = String(body.path ?? '');
+    await clearFolderPassword(getCookie(c, COOKIE) ?? '', root.id, rel, String(body.current ?? ''));
+    await logActivity({ user: user.username, action: 'unprotect', root: root.id, path: rel });
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/locks/unlock', async (c) => {
+    const user = await signedIn(c);
+    const body = await readJson(c);
+    const root = await requireRoot(user, String(body.root ?? ''), 'view');
+    await unlockFolder(getCookie(c, COOKIE) ?? '', root.id, root.abs, String(body.path ?? ''), String(body.password ?? ''));
+    return c.json({ ok: true });
   });
 
   app.get('/api/download', async (c) => {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
-    const file = await readBytes(root.abs, c.req.query('path') ?? '');
+    const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
+    const file = await readBytes(root.abs, rel);
     return fileResponse(file.abs, file.name, c.req.raw, false);
   });
 
@@ -525,6 +577,7 @@ export function createApp(): Hono<AppEnv> {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
     const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
     const file = await readBytes(root.abs, rel);
     if (!canPreview(file.name)) throw new ApiError(403, 'forbidden', 'This file can be downloaded, not previewed.');
     if (isHeicFile(file.name)) {
@@ -541,6 +594,7 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const root = await requireRoot(user, String(body.root ?? ''), 'edit');
     const rel = String(body.path ?? '');
+    await opened(c, root.id, rel);
     if (!isTextFile(rel)) throw new ApiError(400, 'invalid_name', 'This file cannot be edited as text.');
     await saveText(root.abs, rel, String(body.text ?? ''), Number(body.mtime));
     await logActivity({ user: user.username, action: 'edit', root: root.id, path: rel });
@@ -553,6 +607,7 @@ export function createApp(): Hono<AppEnv> {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
     const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
     if (!isTextFile(rel)) throw new ApiError(400, 'invalid_name', 'Follow is for text files.');
     const offset = Number(c.req.query('offset') ?? '-1');
     return c.json(await followFile(root.abs, rel, offset));
@@ -562,6 +617,7 @@ export function createApp(): Hono<AppEnv> {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
     const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
     const base = path.basename(rel);
     const video = isVideoFile(base);
     if (!isImageFile(base) && !video) throw new ApiError(404, 'not_found', 'No thumbnail for this file.');
@@ -603,26 +659,38 @@ export function createApp(): Hono<AppEnv> {
         const found = await searchNames(root.abs, '', query, hidden, filter);
         for (const item of found) {
           if (results.length >= 500) break;
+          if (await searchHidden(getCookie(c, COOKIE) ?? '', root.id, item.path)) continue;
           results.push({ ...item, root: root.id, rootName: root.name });
         }
       }
       return c.json({ results });
     }
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
-    const results = await searchNames(root.abs, c.req.query('path') ?? '', query, hidden, filter);
+    const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
+    const found = await searchNames(root.abs, rel, query, hidden, filter);
+    const results: typeof found = [];
+    for (const item of found) {
+      if (await searchHidden(getCookie(c, COOKIE) ?? '', root.id, item.path)) continue;
+      results.push(item);
+    }
     return c.json({ results });
   });
 
   app.get('/api/size', async (c) => {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
-    return c.json(await folderSize(root.abs, c.req.query('path') ?? ''));
+    const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel, true);
+    return c.json(await folderSize(root.abs, rel));
   });
 
   app.get('/api/checksum', async (c) => {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
-    const file = await readBytes(root.abs, c.req.query('path') ?? '');
+    const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
+    const file = await readBytes(root.abs, rel);
     return c.json({ sha256: await sha256File(file.abs) });
   });
 
@@ -632,6 +700,7 @@ export function createApp(): Hono<AppEnv> {
     const incoming = c.env?.incoming;
     if (!incoming) throw new ApiError(400, 'invalid_name', 'Upload is not available.');
     const dest = c.req.query('path') ?? '';
+    await opened(c, root.id, dest);
     const result = await receiveUpload(incoming, root.abs, dest, conflictMode(c.req.query('onConflict')), runtime().config.maxUploadBytes);
     for (const saved of result.saved) await logActivity({ user: user.username, action: 'upload', root: root.id, path: saved });
     return c.json(result);
@@ -642,6 +711,7 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const root = await requireRoot(user, String(body.root ?? ''), 'edit');
     const size = Number(body.size);
+    await opened(c, root.id, String(body.path ?? ''));
     const pending = await openUpload(
       user.username,
       root.id,
@@ -680,6 +750,7 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const pending = await uploadStatus(user.username, c.req.param('id'));
     const root = await requireRoot(user, pending.root, 'edit');
+    await opened(c, root.id, pending.dest);
     const saved = await finishUpload(user.username, pending.id, root.abs, conflictMode(body.onConflict));
     await logActivity({ user: user.username, action: 'upload', root: root.id, path: saved });
     return c.json({ saved: [saved] });
@@ -696,6 +767,7 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const root = await requireRoot(user, String(body.root ?? ''), 'edit');
     const rel = String(body.path ?? '');
+    await opened(c, root.id, rel);
     const entry = await makeDirectory(root.abs, rel, String(body.name ?? ''));
     const full = rel ? `${rel}/${entry.name}` : entry.name;
     await logActivity({ user: user.username, action: 'mkdir', root: root.id, path: full });
@@ -707,6 +779,7 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const root = await requireRoot(user, String(body.root ?? ''), 'edit');
     const rel = String(body.path ?? '');
+    await opened(c, root.id, rel);
     const entry = await makeFile(root.abs, rel, String(body.name ?? ''));
     const full = rel ? `${rel}/${entry.name}` : entry.name;
     await logActivity({ user: user.username, action: 'create', root: root.id, path: full });
@@ -718,9 +791,11 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const root = await requireRoot(user, String(body.root ?? ''), 'edit');
     const rel = String(body.path ?? '');
+    await opened(c, root.id, rel, true);
     const name = await renameEntry(root.abs, rel, String(body.name ?? ''));
     const parent = rel.split('/').slice(0, -1).join('/');
     const full = parent ? `${parent}/${name}` : name;
+    await retargetLock(root.id, rel, root.id, full);
     await logActivity({ user: user.username, action: 'rename', root: root.id, path: full });
     return c.json({ name, path: full });
   });
@@ -730,6 +805,8 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const source = await requireRoot(user, String(body.root ?? ''), 'edit');
     const dest = body.toRoot ? await requireRoot(user, String(body.toRoot), 'edit') : source;
+    for (const rel of strings(body.paths)) await opened(c, source.id, rel, true);
+    await opened(c, dest.id, String(body.to ?? ''));
     const copied = await copyEntries(source.abs, strings(body.paths), String(body.to ?? ''), conflictMode(body.onConflict), dest.abs);
     const action = body.duplicate ? 'duplicate' : 'copy';
     for (const item of copied) await logActivity({ user: user.username, action, root: dest.id, path: item });
@@ -741,7 +818,15 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const source = await requireRoot(user, String(body.root ?? ''), 'edit');
     const dest = body.toRoot ? await requireRoot(user, String(body.toRoot), 'edit') : source;
-    const moved = await moveEntries(source.abs, strings(body.paths), String(body.to ?? ''), dest.abs);
+    const fromPaths = strings(body.paths);
+    const toDir = String(body.to ?? '');
+    for (const rel of fromPaths) await opened(c, source.id, rel, true);
+    await opened(c, dest.id, toDir);
+    const moved = await moveEntries(source.abs, fromPaths, toDir, dest.abs);
+    for (const rel of fromPaths) {
+      const name = rel.split('/').filter(Boolean).pop() ?? '';
+      await retargetLock(source.id, rel, dest.id, toDir ? `${toDir}/${name}` : name);
+    }
     for (const item of moved) await logActivity({ user: user.username, action: 'move', root: dest.id, path: item });
     return c.json({ moved });
   });
@@ -750,6 +835,7 @@ export function createApp(): Hono<AppEnv> {
     const user = await signedIn(c);
     const body = await readJson(c);
     const root = await requireRoot(user, String(body.root ?? ''), 'edit');
+    for (const rel of strings(body.paths)) await opened(c, root.id, rel, true);
     const deleted = await moveToTrash(root.abs, strings(body.paths), user.username);
     for (const item of deleted) await logActivity({ user: user.username, action: 'trash', root: root.id, path: item });
     return c.json({ deleted });
@@ -762,6 +848,7 @@ export function createApp(): Hono<AppEnv> {
     const root = await requireRoot(user, String(body.root ?? ''), wantSave ? 'edit' : 'view');
     const paths = strings(body.paths);
     if (paths.length === 0) throw new ApiError(400, 'invalid_name', 'Choose something to zip.');
+    for (const rel of paths) await opened(c, root.id, rel, true);
     if (wantSave) {
       const saved = await saveZip(root.abs, paths, runtime().config.maxUploadBytes);
       await logActivity({ user: user.username, action: 'zip', root: root.id, path: saved });
@@ -785,6 +872,7 @@ export function createApp(): Hono<AppEnv> {
     const body = await readJson(c);
     const root = await requireRoot(user, String(body.root ?? ''), 'edit');
     const rel = String(body.path ?? '');
+    await opened(c, root.id, rel);
     const folder = await extractZip(root.abs, rel, runtime().config.maxUploadBytes);
     await logActivity({ user: user.username, action: 'extract', root: root.id, path: folder });
     return c.json({ folder });
@@ -868,6 +956,7 @@ export function createApp(): Hono<AppEnv> {
     const user = await signedIn(c);
     const root = await requireRoot(user, c.req.query('root') ?? '', 'view');
     const rel = c.req.query('path') ?? '';
+    await opened(c, root.id, rel);
     const base = path.basename(rel);
     if (!isVideoFile(base) && !isAudioFile(base)) throw new ApiError(404, 'not_found', 'This file has no length.');
     const file = await readBytes(root.abs, rel);
@@ -939,7 +1028,10 @@ export function createApp(): Hono<AppEnv> {
     const user = await signedIn(c);
     const body = await readJson(c);
     const days = body.days == null || body.days === '' ? null : Number(body.days);
-    const share = await createShare(user, String(body.root ?? ''), String(body.path ?? ''), String(body.password ?? ''), days, String(body.note ?? ''), String(body.address ?? ''));
+    const sharePath = String(body.path ?? '');
+    const shareRoot = String(body.root ?? '');
+    await opened(c, shareRoot, sharePath, true);
+    const share = await createShare(user, shareRoot, sharePath, String(body.password ?? ''), days, String(body.note ?? ''), String(body.address ?? ''), Boolean(body.upload));
     await logActivity({ user: user.username, action: 'share', root: share.root, path: share.path });
     return c.json(share);
   });
@@ -963,7 +1055,8 @@ export function createApp(): Hono<AppEnv> {
     const shares = await listShares(user);
     if (!shares.some((share) => share.id === id)) throw new ApiError(404, 'not_found', 'That link is not there.');
     const { default: QRCode } = await import('qrcode');
-    const svg = await QRCode.toString(`${requestUrl(c).origin}/s/${id}`, { type: 'svg', margin: 1, color: { dark: '#ffffff', light: '#202020' } });
+    const link = shares.find((share) => share.id === id);
+    const svg = await QRCode.toString(`${requestUrl(c).origin}${link?.upload ? '/u/' : '/s/'}${id}`, { type: 'svg', margin: 1, color: { dark: '#ffffff', light: '#202020' } });
     return c.body(svg, 200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'private, no-store' });
   });
 
@@ -975,6 +1068,95 @@ export function createApp(): Hono<AppEnv> {
     await revokeShare(user, id);
     if (share) await logActivity({ user: user.username, action: 'unshare', root: share.root, path: share.path });
     return c.json({ ok: true });
+  });
+
+  app.use('/s/*', async (c, next) => {
+    const id = c.req.path.split('/')[2] ?? '';
+    const info = await describeShare(id);
+    if (info?.upload) return c.redirect(`/u/${id}`, 302);
+    await next();
+  });
+
+  app.get('/api/realpath', async (c) => {
+    const user = await admin(c);
+    const rel = c.req.query('path') ?? '';
+    const rootId = c.req.query('root') ?? '';
+    await opened(c, rootId, rel);
+    return c.json({ path: await folderRealPath(user, rootId, rel) });
+  });
+
+  app.post('/api/terminal/unlock', async (c) => {
+    const user = await admin(c);
+    const body = await readJson(c);
+    const key = `terminal:${user.username}`;
+    const wait = loginWait(key);
+    if (wait > 0) return c.json({ error: 'That password is wrong.', code: 'rate_limited', retryAfterMs: wait }, 429);
+    const ok = await verifyPassword(String(body.password ?? ''), user.passwordHash);
+    if (!ok) {
+      const retryAfterMs = loginFailed(key);
+      return c.json({ error: 'That password is wrong.', code: retryAfterMs ? 'rate_limited' : 'unauthorized', retryAfterMs }, 401);
+    }
+    loginSucceeded(key);
+    return c.json({ ticket: issueTerminalTicket(user.username) });
+  });
+
+  app.get('/u/:token', async (c) => {
+    const id = c.req.param('token');
+    try {
+      const drop = await acceptUpload(id, null, uploadCookieOk(c, id));
+      if (drop.needsPassword) return c.html(uploadScreen({ kind: 'password', name: drop.name }), 401);
+      return c.html(uploadScreen({ kind: 'ready', name: drop.name }));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return c.html(uploadScreen({ kind: 'missing' }), 404);
+      throw error;
+    }
+  });
+
+  app.post('/u/:token', async (c) => {
+    const id = c.req.param('token');
+    const type = c.req.header('content-type') ?? '';
+    if (!type.includes('multipart/form-data')) {
+      const password = new URLSearchParams(await c.req.text()).get('password') ?? '';
+      try {
+        const drop = await acceptUpload(id, password, false);
+        if (drop.needsPassword) return c.html(uploadScreen({ kind: 'password', name: drop.name }), 401);
+        setCookie(c, 'larder_upload', uploadGrant(id), {
+          httpOnly: true,
+          sameSite: 'Lax',
+          path: `/u/${id}`,
+          secure: requestUrl(c).protocol === 'https:',
+          maxAge: 600,
+        });
+        return c.html(uploadScreen({ kind: 'ready', name: drop.name }));
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 429)) {
+          const info = await describeShare(id);
+          return c.html(uploadScreen({ kind: 'password', name: info?.name ?? 'Larder', message: error.message }), error.status as 401);
+        }
+        if (error instanceof ApiError && error.status === 404) return c.html(uploadScreen({ kind: 'missing' }), 404);
+        throw error;
+      }
+    }
+    const incoming = c.env?.incoming;
+    if (!incoming) throw new ApiError(400, 'invalid_name', 'Upload is not available.');
+    let drop: Awaited<ReturnType<typeof acceptUpload>>;
+    try {
+      drop = await acceptUpload(id, null, uploadCookieOk(c, id));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return c.html(uploadScreen({ kind: 'missing' }), 404);
+      throw error;
+    }
+    if (drop.needsPassword) return c.html(uploadScreen({ kind: 'password', name: drop.name }), 401);
+    try {
+      const result = await receiveUpload(incoming, drop.rootAbs, drop.dest, 'keep', runtime().config.maxUploadBytes);
+      if (result.saved.length === 0) return c.html(uploadScreen({ kind: 'ready', name: drop.name, message: 'Choose a file to send.' }), 400);
+      await recordOpen(id);
+      for (const saved of result.saved) await logActivity({ user: drop.owner, action: 'drop', root: drop.root, path: saved });
+      return c.html(uploadScreen({ kind: 'sent', name: drop.name, saved: result.saved }));
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Those files could not be saved.';
+      return c.html(uploadScreen({ kind: 'ready', name: drop.name, message }), 400);
+    }
   });
 
   app.get('/s/:token/file', async (c) => {
@@ -1104,11 +1286,18 @@ export function createApp(): Hono<AppEnv> {
   });
 
   if (process.env.NODE_ENV === 'production') {
+    app.use('/*', async (c, next) => {
+      await next();
+      const type = c.res.headers.get('content-type') ?? '';
+      if (c.req.path === '/' || c.req.path.endsWith('.html') || type.includes('text/html')) {
+        c.res.headers.set('Cache-Control', 'no-cache');
+      }
+    });
     app.use('/*', serveStatic({ root: path.join(process.cwd(), 'dist', 'client') }));
     app.notFound(async (c) => {
       if (c.req.path.startsWith('/api')) return c.json({ error: 'That page is not there.', code: 'not_found' }, 404);
       const html = await fs.readFile(path.join(process.cwd(), 'dist', 'client', 'index.html'));
-      return c.html(html.toString());
+      return c.html(html.toString(), 200, { 'Cache-Control': 'no-cache' });
     });
   }
 
@@ -1117,6 +1306,66 @@ export function createApp(): Hono<AppEnv> {
 
 function shareGrant(id: string): string {
   return crypto.createHmac('sha256', runtime().config.sessionSecret).update(id).digest('hex');
+}
+
+function uploadGrant(id: string): string {
+  return crypto.createHmac('sha256', runtime().config.sessionSecret).update(`upload\0${id}`).digest('hex');
+}
+
+function uploadCookieOk(c: Context, id: string): boolean {
+  const given = getCookie(c, 'larder_upload');
+  if (!given) return false;
+  const expected = uploadGrant(id);
+  if (given.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+}
+
+function uploadScreen(
+  view: { kind: 'missing' } | { kind: 'password'; name: string; message?: string } | { kind: 'ready'; name: string; message?: string } | { kind: 'sent'; name: string; saved: string[] },
+): string {
+  const title = view.kind === 'missing' ? 'Larder' : view.name;
+  let inner = '<h1>Larder</h1><p>This link is not available.</p>';
+  if (view.kind === 'password') {
+    const warn = view.message ? `<p class="warn">${shareText(view.message)}</p>` : '';
+    inner = `<h1>${shareText(view.name)}</h1><p>This folder accepts files with a password.</p>${warn}<form method="post"><input type="password" name="password" autocomplete="current-password" placeholder="Password" autofocus required><button type="submit">Continue</button></form>`;
+  } else if (view.kind === 'ready') {
+    const warn = view.message ? `<p class="warn">${shareText(view.message)}</p>` : '';
+    inner = `<h1>${shareText(view.name)}</h1><p>Add files to this folder. You do not need an account.</p>${warn}<form method="post" enctype="multipart/form-data"><label class="drop">Drop files here, or choose them.<input type="file" name="file" multiple required></label><button type="submit">Send</button></form>`;
+  } else if (view.kind === 'sent') {
+    const names = view.saved.map((item) => `<li>${shareText(item)}</li>`).join('');
+    inner = `<h1>${shareText(view.name)}</h1><p>Saved.</p><ul>${names}</ul><form method="post" enctype="multipart/form-data"><label class="drop">Send more files.<input type="file" name="file" multiple required></label><button type="submit">Send</button></form>`;
+  }
+  return `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${shareText(title)}</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 28px 16px; background: #191919; color: #fff; font: 14px "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; }
+  main { width: min(420px, 100%); display: flex; flex-direction: column; align-items: stretch; gap: 12px; border: 1px solid #454545; border-radius: 8px; background: #202020; padding: 24px; box-shadow: 0 16px 40px rgb(0 0 0 / 0.35); }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; word-break: break-word; }
+  p, li { margin: 0; color: #adadad; }
+  ul { margin: 0; padding-left: 18px; }
+  .warn { color: #e81123; }
+  form { display: flex; flex-direction: column; gap: 10px; }
+  input, button { box-sizing: border-box; width: 100%; border: 1px solid #454545; border-radius: 4px; background: #2b2b2b; color: #fff; padding: 8px 10px; font: inherit; }
+  button { background: #60cdff; color: #00374a; border-color: transparent; font-weight: 600; cursor: pointer; }
+  .drop { display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; min-height: 120px; border: 1px dashed #5a5a5a; border-radius: 8px; padding: 16px; text-align: center; color: #adadad; }
+  input[type=file] { border: 0; background: transparent; padding: 0; }
+</style>
+<body><main>${inner}</main>
+<script>
+const form = document.querySelector('form[enctype]');
+const input = form && form.querySelector('input[type=file]');
+if (form && input) {
+  form.addEventListener('dragover', (event) => event.preventDefault());
+  form.addEventListener('drop', (event) => {
+    event.preventDefault();
+    const files = event.dataTransfer && event.dataTransfer.files;
+    if (files && files.length) input.files = files;
+  });
+}
+</script>`;
 }
 
 function shareCookieOk(c: Context, id: string): boolean {

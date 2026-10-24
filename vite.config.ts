@@ -11,6 +11,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://127.0.0.1:8788',
       '/s/': 'http://127.0.0.1:8788',
+      '/u/': 'http://127.0.0.1:8788',
       '/join/': 'http://127.0.0.1:8788',
     },
   },

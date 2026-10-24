@@ -76,6 +76,9 @@ const actions: Record<string, string> = {
   restore: 'Restored from trash',
   empty_trash: 'Emptied trash',
   terminal: 'Opened a terminal',
+  drop: 'Received an upload',
+  protect: 'Password protected a folder',
+  unprotect: 'Removed a folder password',
 };
 
 export function Users({ you, onChanged }: { you: string; onChanged: () => void }) {

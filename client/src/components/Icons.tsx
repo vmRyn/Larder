@@ -31,7 +31,8 @@ export type IconName =
   | 'eye'
   | 'open'
   | 'properties'
-  | 'restore';
+  | 'restore'
+  | 'lock';
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <img className="icon" src={`/icons/${name}.png`} width={size} height={size} alt="" draggable={false} />;

@@ -17,10 +17,11 @@ export type ShareLink = {
   note: string;
   opens: number;
   lastOpen: string | null;
+  upload?: boolean;
 };
 
 export function ShareActions({ share, onChange, onRevoke }: { share: ShareLink; onChange: (share: ShareLink) => void; onRevoke: () => void }) {
-  const url = `${window.location.origin}/s/${share.id}`;
+  const url = `${window.location.origin}${share.upload ? '/u/' : '/s/'}${share.id}`;
   const [qr, setQr] = useState(false);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState(share.note);
@@ -60,6 +61,8 @@ export function ShareActions({ share, onChange, onRevoke }: { share: ShareLink; 
       {qr && <img className="rounded-control bg-surface" src={`/api/shares/${share.id}/qr`} width={180} height={180} alt="QR code for this link" />}
       <p className="text-xs text-muted">
         {share.note || 'No note'}
+        <span className="px-1.5">·</span>
+        {share.upload ? 'Upload link' : 'Download link'}
         <span className="px-1.5">·</span>
         {share.hasPassword ? 'Password' : 'No password'}
         <span className="px-1.5">·</span>

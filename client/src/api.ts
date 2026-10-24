@@ -17,6 +17,7 @@ export type Entry = {
   mtime: number | null;
   hidden: boolean;
   mode: string | null;
+  locked?: boolean;
 };
 
 export type Session =
@@ -47,6 +48,7 @@ export class ApiError extends Error {
     public code: string,
     public status: number,
     public retryAfterMs = 0,
+    public lockPath = '',
   ) {
     super(message);
   }
@@ -63,8 +65,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await response.text();
   const data = text ? (JSON.parse(text) as T & { error?: string; code?: string; retryAfterMs?: number }) : ({} as T);
   if (!response.ok) {
-    const body = data as { error?: string; code?: string; retryAfterMs?: number };
-    throw new ApiError(body.error ?? 'Something went wrong.', body.code ?? 'error', response.status, body.retryAfterMs ?? 0);
+    const body = data as { error?: string; code?: string; retryAfterMs?: number; path?: string };
+    throw new ApiError(body.error ?? 'Something went wrong.', body.code ?? 'error', response.status, body.retryAfterMs ?? 0, body.path ?? '');
   }
   return data;
 }

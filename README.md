@@ -12,16 +12,16 @@ Larder runs on the machine that holds the files. You open it in a browser, on th
 
 ![The Documents folder in Larder](docs/images/files.png)
 
-Admins can open a terminal in the browser. It is a shell on the machine, as the account that runs Larder.
+Admins can open a terminal in the browser after entering their password again. It is a shell on the machine, as the account that runs Larder, and it starts in the folder that is open.
 
 ## What you can do
 
 - Sign in with an account. The first visit creates the admin. Each person can have view or edit access to a folder, or share that access through a group. The higher access is the one that applies. Each person can also have a private vault named after them, such as Ryns Vault.
-- Browse, filter, and search by name, type, size, or date. Search can cover every folder the account can open. Sort by name, date, size, or type, remembered per folder. Show or hide dotfiles.
+- Browse, filter, and search by name, type, size, or date. Search can cover every folder the account can open. Sort by name, date, size, or type, remembered per folder. Show or hide dotfiles. Right-click a folder and choose Password Protect to ask for a password before it opens.
 - Preview images, audio, video, PDF, and text. Markdown is rendered, and CSV is shown as a table. Edit text in the browser. Video files get a thumbnail when ffmpeg is installed.
 - Upload files, or a whole folder with its structure. Paste a picture from the clipboard. An upload that drops can continue where it stopped. Download a file, or a selection as a zip, and extract a zip in place.
 - Rename, duplicate, copy, and move, including between folders. Delete goes to trash. Trash can be removed automatically after a chosen number of days.
-- Share a file, or a folder as a zip. A link can have an address you choose, a short note, a password, an expiry, and a QR code. You can change those without making a new link, see when it was opened, and save one file out of a shared zip. Leave the address blank for a long random link.
+- Share a file, or a folder as a zip. A folder can also have an upload link, so someone can add files without an account. A link can have an address you choose, a short note, a password, an expiry, and a QR code. You can change those without making a new link, see when it was opened, and save one file out of a shared zip. Leave the address blank for a long random link.
 - Invite someone with the folder access you already picked. The invite creates their account. Unused invites stay listed, with their link, until they are used or revoked.
 - On the admin Health page, see free space, memory, processor, network, shares, uploads still in progress, and the activity log. A disk that is nearly full is marked. The activity log keeps the latest 5,000 lines.
 

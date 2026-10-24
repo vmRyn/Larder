@@ -1,10 +1,16 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import os from 'node:os';
 import { spawn, type IPty } from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
-import { readSession } from './auth.js';
+import { requireRoot } from './access.js';
 import { logActivity } from './activity.js';
+import { readSession } from './auth.js';
+import type { ConfigUser } from './config.js';
+import { ApiError } from './errors.js';
+import { locate } from './files.js';
 
 const COOKIE = 'larder_session';
 
@@ -29,7 +35,37 @@ function shellEnv(): Record<string, string> {
   return env;
 }
 
-function openShell(ws: WebSocket, username: string) {
+const tickets = new Map<string, { user: string; until: number }>();
+
+export function issueTerminalTicket(username: string): string {
+  const now = Date.now();
+  for (const [key, row] of tickets) {
+    if (row.until < now) tickets.delete(key);
+  }
+  const ticket = crypto.randomBytes(32).toString('hex');
+  tickets.set(ticket, { user: username, until: now + 60_000 });
+  return ticket;
+}
+
+export function takeTerminalTicket(ticket: string, username: string): boolean {
+  const row = tickets.get(ticket);
+  if (!row || row.until < Date.now()) {
+    if (row) tickets.delete(ticket);
+    return false;
+  }
+  if (row.user !== username) return false;
+  tickets.delete(ticket);
+  return true;
+}
+
+export async function folderRealPath(user: ConfigUser, rootId: string, rel: string): Promise<string> {
+  const root = await requireRoot(user, rootId, 'view');
+  const located = await locate(root.abs, rel, 'read');
+  if (!located.real || located.outside || !located.isDir) throw new ApiError(404, 'not_found', 'That folder is not there.');
+  return fs.realpath(located.real);
+}
+
+function openShell(ws: WebSocket, username: string, cwd: string, rootId: string, rel: string) {
   const windows = process.platform === 'win32';
   let pty: IPty;
   try {
@@ -37,7 +73,7 @@ function openShell(ws: WebSocket, username: string) {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
-      cwd: os.homedir(),
+      cwd,
       env: shellEnv(),
     });
   } catch (error) {
@@ -45,7 +81,7 @@ function openShell(ws: WebSocket, username: string) {
     ws.close();
     return;
   }
-  void logActivity({ user: username, action: 'terminal', root: '', path: '' });
+  void logActivity({ user: username, action: 'terminal', root: rootId, path: rel });
   pty.onData((data) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(data);
   });
@@ -90,16 +126,31 @@ export function attachTerminal(server: UpgradeServer) {
 }
 
 async function acceptTerminal(sockets: WebSocketServer, request: IncomingMessage, socket: Duplex, head: Buffer) {
-  const path = (request.url ?? '/').split('?')[0];
-  if (path !== '/api/terminal') {
+  const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  if (url.pathname !== '/api/terminal') {
     socket.destroy();
     return;
   }
   const user = await readSession(sessionId(request.headers.cookie));
-  if (!user?.admin) {
+  const ticket = url.searchParams.get('ticket') ?? '';
+  if (!user?.admin || !takeTerminalTicket(ticket, user.username)) {
     socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
   }
-  sockets.handleUpgrade(request, socket, head, (ws) => openShell(ws, user.username));
+  const rootId = url.searchParams.get('root') ?? '';
+  const rel = url.searchParams.get('path') ?? '';
+  let cwd = os.homedir();
+  let loggedRoot = '';
+  let loggedPath = '';
+  if (rootId) {
+    try {
+      cwd = await folderRealPath(user, rootId, rel);
+      loggedRoot = rootId;
+      loggedPath = rel;
+    } catch {
+      cwd = os.homedir();
+    }
+  }
+  sockets.handleUpgrade(request, socket, head, (ws) => openShell(ws, user.username, cwd, loggedRoot, loggedPath));
 }

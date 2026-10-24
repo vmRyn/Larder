@@ -91,6 +91,7 @@ export function Explorer({
   const [selected, setSelected] = useState<string[]>([]);
   const [anchor, setAnchor] = useState<string | null>(null);
   const [banner, setBanner] = useState('');
+  const [realPath, setRealPath] = useState('');
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState(path);
   const [preview, setPreview] = useState<string | null>(null);
@@ -107,6 +108,8 @@ export function Explorer({
     | { type: 'empty'; count: number; typed: string }
     | { type: 'restore'; id: string }
     | { type: 'share'; path: string; name: string; password: string; days: string; note: string; address: string; url: string; error: string; shares: ShareLink[]; folder: boolean; shareRoot: string }
+    | { type: 'protect'; path: string; name: string; password: string; confirm: string; current: string; hasPassword: boolean; error: string }
+    | { type: 'unlock'; path: string; name: string; password: string; error: string }
   >(null);
   const previewHold = useRef<{ path: string; root: string; entry: Entry | null } | null>(null);
   const uploadHold = useRef<{ label: string; ratio: number } | null>(null);
@@ -147,7 +150,20 @@ export function Explorer({
     setPreview(null);
     setSearch(null);
     setBanner('');
-    void load().catch((reason: Error) => setBanner(reason.message));
+    void load().catch((reason: Error) => {
+      if (reason instanceof ApiError && reason.code === 'locked') {
+        setEntries([]);
+        setDialog({
+          type: 'unlock',
+          path: reason.lockPath || path,
+          name: baseName(reason.lockPath || path) || rootName,
+          password: '',
+          error: '',
+        });
+        return;
+      }
+      setBanner(reason.message);
+    });
   }, [load]);
 
   useEffect(() => {
@@ -223,6 +239,16 @@ export function Explorer({
       await action();
       await load();
     } catch (reason) {
+      if (reason instanceof ApiError && reason.code === 'locked') {
+        setDialog({
+          type: 'unlock',
+          path: reason.lockPath || path,
+          name: baseName(reason.lockPath || path) || rootName,
+          password: '',
+          error: '',
+        });
+        return;
+      }
       if (reason instanceof ApiError && reason.code === 'conflict') setBanner(reason.message);
       else setBanner(reason instanceof Error ? reason.message : 'That action failed.');
     }
@@ -377,6 +403,53 @@ export function Explorer({
       open: [''],
       nodes: { '': data.entries.filter((entry) => (entry.kind === 'dir' || entry.symlinkTo === 'dir') && (hidden || !entry.hidden)) },
     });
+  }
+
+  useEffect(() => {
+    if (!admin || trash) {
+      setRealPath('');
+      return;
+    }
+    let cancel = false;
+    void api<{ path: string }>(`/api/realpath?root=${encodeURIComponent(rootId)}&path=${encodeURIComponent(path)}`)
+      .then((data) => {
+        if (!cancel) setRealPath(data.path);
+      })
+      .catch(() => {
+        if (!cancel) setRealPath('');
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [admin, trash, rootId, path]);
+
+  async function makeShare(
+    current: Extract<NonNullable<typeof dialog>, { type: 'share' }>,
+    upload: boolean,
+  ) {
+    try {
+      const created = await api<ShareLink>('/api/shares', {
+        method: 'POST',
+        body: JSON.stringify({
+          root: current.shareRoot,
+          path: current.path,
+          password: current.password,
+          days: current.days ? Number(current.days) : null,
+          note: current.note,
+          address: current.address,
+          upload,
+        }),
+      });
+      setDialog({
+        ...current,
+        url: `${window.location.origin}${created.upload ? '/u/' : '/s/'}${created.id}`,
+        error: '',
+        password: '',
+        shares: [created, ...current.shares.filter((share) => share.id !== created.id)],
+      });
+    } catch (reason) {
+      setDialog({ ...current, error: reason instanceof Error ? reason.message : 'Could not create the link.' });
+    }
   }
 
   async function openShare(filePath: string, name: string, folder = false, shareRoot = rootId) {
@@ -617,6 +690,23 @@ export function Explorer({
     const items: (ContextItem | 'sep')[] = menuItems([
       [
         single ? { icon: 'open', label: 'Open', shortcut: 'Enter', onSelect: () => openRow(single) } : null,
+        single && isDir && canEdit
+          ? {
+              icon: 'lock',
+              label: 'Password Protect',
+              onSelect: () =>
+                setDialog({
+                  type: 'protect',
+                  path: single.path,
+                  name: single.name,
+                  password: '',
+                  confirm: '',
+                  current: '',
+                  hasPassword: Boolean(single.locked),
+                  error: '',
+                }),
+            }
+          : null,
         single && !isDir ? { icon: 'download', label: 'Download', onSelect: () => downloadFile(single.path) } : null,
         single ? { icon: 'link', label: 'Share', onSelect: () => void openShare(single.path, single.name, isDir) } : null,
         acted.length > 1 || isDir
@@ -902,6 +992,7 @@ export function Explorer({
               ))}
             </button>
           )}
+          {realPath && <CopyIconButton value={realPath} label="Copy folder path" />}
           <input className="field w-36" placeholder="Filter" value={filter} onChange={(event) => setFilter(event.target.value)} />
           <form
             className="flex flex-wrap items-center gap-1"
@@ -1073,6 +1164,11 @@ export function Explorer({
                   >
                     <span className="relative grid aspect-square place-items-center overflow-hidden rounded-control bg-page">
                       <Icon name={iconFor(row.name, row.kind, row.symlinkTo)} size={32} />
+                      {row.locked && (
+                        <span className="absolute right-1 bottom-1">
+                          <Icon name="lock" size={16} />
+                        </span>
+                      )}
                       {picture && (
                         <img
                           alt=""
@@ -1137,6 +1233,11 @@ export function Explorer({
                         {row.kind === 'symlink' && (
                           <span className="absolute -right-1.5 -bottom-1.5">
                             <Icon name="link" size={12} />
+                          </span>
+                        )}
+                        {row.locked && (
+                          <span className="absolute -right-1.5 -bottom-1.5">
+                            <Icon name="lock" size={12} />
                           </span>
                         )}
                         {(isImageName(row.name) || isVideoName(row.name)) && !row.outside && (
@@ -1407,10 +1508,138 @@ export function Explorer({
           </>
         )}
       </Dialog>
+      <Dialog
+        open={dialog?.type === 'protect'}
+        title={dialog?.type === 'protect' ? `Password protect ${dialog.name}` : ''}
+        onClose={() => setDialog(null)}
+      >
+        {dialog?.type === 'protect' && (
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void (async () => {
+                if (dialog.password !== dialog.confirm) {
+                  setDialog({ ...dialog, error: 'Those passwords do not match.' });
+                  return;
+                }
+                if (!dialog.password) {
+                  setDialog({ ...dialog, error: 'Enter a password.' });
+                  return;
+                }
+                try {
+                  await api('/api/locks', {
+                    method: 'PUT',
+                    body: JSON.stringify({ root: rootId, path: dialog.path, password: dialog.password, current: dialog.current }),
+                  });
+                  setDialog(null);
+                  await load();
+                } catch (reason) {
+                  setDialog({ ...dialog, error: reason instanceof Error ? reason.message : 'Could not protect that folder.' });
+                }
+              })();
+            }}
+          >
+            <p className="text-sm text-muted">Opening this folder will ask for this password.</p>
+            {dialog.hasPassword && (
+              <label className="block text-sm">
+                <span className="mb-1 block text-muted">Current password</span>
+                <input className="field" type="password" autoComplete="current-password" value={dialog.current} onChange={(event) => setDialog({ ...dialog, current: event.target.value })} />
+              </label>
+            )}
+            <label className="block text-sm">
+              <span className="mb-1 block text-muted">Password</span>
+              <input className="field" type="password" autoComplete="new-password" value={dialog.password} onChange={(event) => setDialog({ ...dialog, password: event.target.value })} />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block text-muted">Confirm password</span>
+              <input className="field" type="password" autoComplete="new-password" value={dialog.confirm} onChange={(event) => setDialog({ ...dialog, confirm: event.target.value })} />
+            </label>
+            {dialog.error && <p className="notice text-sm text-danger">{dialog.error}</p>}
+            <div className="flex justify-end gap-2">
+              {dialog.hasPassword && (
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await api('/api/locks', {
+                          method: 'DELETE',
+                          body: JSON.stringify({ root: rootId, path: dialog.path, current: dialog.current }),
+                        });
+                        setDialog(null);
+                        await load();
+                      } catch (reason) {
+                        setDialog({ ...dialog, error: reason instanceof Error ? reason.message : 'Could not remove that password.' });
+                      }
+                    })();
+                  }}
+                >
+                  Remove password
+                </button>
+              )}
+              <button className="btn" type="button" onClick={() => setDialog(null)}>Cancel</button>
+              <button className="btn btn-primary" type="submit">{dialog.hasPassword ? 'Save' : 'Protect'}</button>
+            </div>
+          </form>
+        )}
+      </Dialog>
+      <Dialog
+        open={dialog?.type === 'unlock'}
+        title={dialog?.type === 'unlock' ? dialog.name : ''}
+        onClose={() => {
+          const locked = dialog?.type === 'unlock' ? dialog.path : '';
+          setDialog(null);
+          if (locked && (path === locked || path.startsWith(`${locked}/`))) setPath(parentPath(locked));
+        }}
+      >
+        {dialog?.type === 'unlock' && (
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void (async () => {
+                try {
+                  await api('/api/locks/unlock', {
+                    method: 'POST',
+                    body: JSON.stringify({ root: rootId, path: dialog.path, password: dialog.password }),
+                  });
+                  setDialog(null);
+                  await load();
+                } catch (reason) {
+                  setDialog({ ...dialog, error: reason instanceof Error ? reason.message : 'Could not open that folder.', password: '' });
+                }
+              })();
+            }}
+          >
+            <p className="text-sm text-muted">This folder needs a password.</p>
+            <label className="block text-sm">
+              <span className="mb-1 block text-muted">Password</span>
+              <input className="field" type="password" autoComplete="current-password" value={dialog.password} onChange={(event) => setDialog({ ...dialog, password: event.target.value })} />
+            </label>
+            {dialog.error && <p className="notice text-sm text-danger">{dialog.error}</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn"
+                type="button"
+                onClick={() => {
+                  const locked = dialog.path;
+                  setDialog(null);
+                  if (path === locked || path.startsWith(`${locked}/`)) setPath(parentPath(locked));
+                }}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary" type="submit">Open</button>
+            </div>
+          </form>
+        )}
+      </Dialog>
       <Dialog open={dialog?.type === 'share'} title={dialog?.type === 'share' ? `Share ${dialog.name}` : ''} wide onClose={() => setDialog(null)}>
         {dialog?.type === 'share' && (
           <div className="flex flex-col gap-3">
-            {dialog.folder && <p className="text-sm text-muted">The link downloads a zip of this folder.</p>}
+            {dialog.folder && <p className="text-sm text-muted">A download link sends a zip of this folder. An upload link lets someone add files here, without an account.</p>}
             <label className="block text-sm">
               <span className="mb-1 block text-muted">Address</span>
               <input className="field" placeholder="Optional, such as saturday" maxLength={32} value={dialog.address} onChange={(event) => setDialog({ ...dialog, address: event.target.value })} />
@@ -1444,36 +1673,12 @@ export function Explorer({
             )}
             <div className="flex justify-end gap-2">
               <button className="btn" type="button" onClick={() => setDialog(null)}>Close</button>
-              <button
-                className="btn btn-primary"
-                type="button"
-                onClick={() =>
-                  void (async () => {
-                    try {
-                      const created = await api<ShareLink>('/api/shares', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                          root: dialog.shareRoot,
-                          path: dialog.path,
-                          password: dialog.password,
-                          days: dialog.days ? Number(dialog.days) : null,
-                          note: dialog.note,
-                          address: dialog.address,
-                        }),
-                      });
-                      setDialog({
-                        ...dialog,
-                        url: `${window.location.origin}/s/${created.id}`,
-                        error: '',
-                        password: '',
-                        shares: [created, ...dialog.shares.filter((share) => share.id !== created.id)],
-                      });
-                    } catch (reason) {
-                      setDialog({ ...dialog, error: reason instanceof Error ? reason.message : 'Could not create the link.' });
-                    }
-                  })()
-                }
-              >
+              {dialog.folder && canEdit && (
+                <button className="btn" type="button" onClick={() => void makeShare(dialog, true)}>
+                  Upload link
+                </button>
+              )}
+              <button className="btn btn-primary" type="button" onClick={() => void makeShare(dialog, false)}>
                 Create link
               </button>
             </div>
