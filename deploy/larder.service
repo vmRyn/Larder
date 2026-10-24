@@ -1,0 +1,17 @@
+[Unit]
+Description=Larder file manager
+After=network.target
+
+[Service]
+Type=simple
+User=larder
+Group=larder
+WorkingDirectory=/opt/larder
+Environment=NODE_ENV=production
+Environment=LARDER_CONFIG=/opt/larder/larder.config.json
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

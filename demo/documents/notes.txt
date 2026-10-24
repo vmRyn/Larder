@@ -1,0 +1,5 @@
+Welcome to Larder.
+
+This folder is on the machine running Larder. On this Windows PC it is the demo folder. On the Linux server, point a root in larder.config.json at a real directory.
+
+You can edit this file from the preview when you are signed in with permission to change the folder.

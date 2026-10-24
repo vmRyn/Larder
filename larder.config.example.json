@@ -1,0 +1,16 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "sessionSecret": "",
+  "maxUploadBytes": 8589934592,
+  "trashDays": null,
+  "homes": {
+    "enabled": true,
+    "path": "demo/homes"
+  },
+  "roots": [
+    { "id": "documents", "name": "Documents", "path": "demo/documents" },
+    { "id": "media", "name": "Media", "path": "demo/media" }
+  ],
+  "users": []
+}

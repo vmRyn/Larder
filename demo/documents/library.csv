@@ -1,0 +1,5 @@
+Name,Kind,Note
+notes.txt,Text,Welcome file
+photos,Folder,Pictures
+photos.zip,Archive,The same folder, packed
+saturday.md,Markdown,This week

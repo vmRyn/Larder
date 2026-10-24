@@ -1,0 +1,219 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --color-page: #191919;
+  --color-surface: #202020;
+  --color-line: #2e2e2e;
+  --color-split: #454545;
+  --color-ink: #ffffff;
+  --color-muted: #adadad;
+  --color-accent: #60cdff;
+  --color-accent-ink: #06202b;
+  --color-select: #333333;
+  --color-hover: #2a2a2a;
+  --color-danger: #e81123;
+  --radius-control: 4px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.4;
+  color-scheme: dark;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+img.icon {
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    height: 32px;
+    align-items: center;
+    gap: 8px;
+    border-radius: var(--radius-control);
+    border: 1px solid transparent;
+    background: var(--color-hover);
+    padding: 0 12px;
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .btn:hover {
+    background: var(--color-select);
+  }
+  .btn:focus-visible,
+  .field:focus-visible,
+  .icon-btn:focus-visible,
+  .cmd:focus-visible,
+  .nav-item:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+  .btn-primary:hover {
+    filter: brightness(1.08);
+  }
+  .btn-danger {
+    background: var(--color-danger);
+    color: #ffffff;
+  }
+  .btn:disabled,
+  .cmd:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+  .field {
+    height: 32px;
+    width: 100%;
+    border-radius: var(--radius-control);
+    border: 1px solid transparent;
+    background: #2b2b2b;
+    padding: 0 8px;
+    color: var(--color-ink);
+  }
+  .field:focus {
+    border-color: var(--color-accent);
+  }
+  .icon-btn {
+    border: 0;
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+    padding: 4px;
+  }
+  .icon-btn:hover {
+    color: var(--color-ink);
+  }
+  .cmd {
+    display: inline-flex;
+    height: 36px;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    padding: 0 8px;
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .cmd:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+  .nav-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    padding: 6px 8px;
+    color: var(--color-ink);
+    text-align: left;
+    cursor: pointer;
+  }
+  .nav-item:hover {
+    background: var(--color-hover);
+  }
+  .nav-item[data-active='true'] {
+    background: var(--color-select);
+  }
+  .address {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    height: 32px;
+    border-radius: var(--radius-control);
+    background: #2b2b2b;
+    padding: 0 10px;
+  }
+  .address:focus-within {
+    outline: 1px solid var(--color-accent);
+  }
+  .ctx {
+    position: fixed;
+    z-index: 60;
+    min-width: 232px;
+    padding: 4px;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    background: #2c2c2c;
+    box-shadow: 0 8px 28px rgb(0 0 0 / 45%);
+    color: #fff;
+  }
+  .ctx-icons {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid #3f3f3f;
+    padding: 2px 2px 6px;
+  }
+  .ctx-icon,
+  .ctx-item {
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .ctx-icon {
+    display: grid;
+    width: 36px;
+    height: 32px;
+    place-items: center;
+  }
+  .ctx-item {
+    display: flex;
+    width: 100%;
+    height: 32px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 8px;
+    text-align: left;
+  }
+  .ctx-icon:hover:not(:disabled),
+  .ctx-item:hover:not(:disabled) {
+    background: #3d3d3d;
+  }
+  .ctx-icon:disabled,
+  .ctx-item:disabled {
+    cursor: default;
+    opacity: 0.38;
+  }
+  .ctx-key {
+    margin-left: auto;
+    padding-left: 16px;
+    color: #9b9b9b;
+    font-size: 12px;
+  }
+  .ctx-sep {
+    height: 1px;
+    margin: 4px 8px;
+    background: #3f3f3f;
+  }
+}

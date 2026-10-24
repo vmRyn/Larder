@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+.git
+larder.config.json
+plan.md
+*.log
+.DS_Store
