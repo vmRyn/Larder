@@ -28,7 +28,7 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`w-full rounded-control border border-split bg-surface p-4 shadow-[0_16px_40px_rgb(0_0_0/0.45)] ${wide ? 'max-w-lg' : 'max-w-md'}`}
+        className={`w-full rounded-control border border-split bg-surface p-4 shadow-[var(--shadow-pop)] ${wide ? 'max-w-lg' : 'max-w-md'}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <h2 className="mb-3 text-base">{title}</h2>

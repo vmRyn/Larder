@@ -40,6 +40,12 @@ export function App() {
   const [nextPassword, setNextPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const narrow = useNarrow();
+  const [light, setLight] = useState(() => localStorage.getItem('larder:theme') === 'light');
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = light ? 'light' : 'dark';
+    localStorage.setItem('larder:theme', light ? 'light' : 'dark');
+  }, [light]);
 
   useEffect(() => {
     const block = (event: MouseEvent) => {
@@ -151,7 +157,7 @@ export function App() {
                 <span className="block truncate">{item.name}</span>
                 {used != null && (
                   <span className="mt-1 block h-1 overflow-hidden rounded-full bg-line">
-                    <span className="block h-full" style={{ width: `${used * 100}%`, background: low ? '#e81123' : '#60cdff' }} />
+                    <span className="block h-full" style={{ width: `${used * 100}%`, background: low ? 'var(--color-danger)' : 'var(--color-accent)' }} />
                   </span>
                 )}
                 {item.freeBytes != null && (
@@ -246,17 +252,40 @@ export function App() {
         <div className="min-w-0 flex-1 truncate text-muted">
           {page === 'files' ? root?.name : page === 'users' ? 'Users' : page === 'shared' ? 'Shared' : page === 'health' ? 'Health' : page === 'about' ? 'About' : 'Activity'}
         </div>
+        <button
+          className="theme-switch"
+          type="button"
+          data-mode={light ? 'light' : 'dark'}
+          aria-pressed={light}
+          aria-label={light ? 'Switch to dark mode' : 'Switch to light mode'}
+          onClick={() => setLight((value) => !value)}
+        >
+          <span className="theme-switch-thumb" />
+          <span className="theme-switch-icon">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <circle cx="8" cy="8" r="2.6" fill="currentColor" />
+              <g fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                <path d="M8 1.4v1.7M8 12.9v1.7M1.4 8h1.7M12.9 8h1.7M3.3 3.3l1.2 1.2M11.5 11.5l1.2 1.2M12.7 3.3l-1.2 1.2M4.5 11.5l-1.2 1.2" />
+              </g>
+            </svg>
+          </span>
+          <span className="theme-switch-icon">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path fill="currentColor" d="M8.7 1.5a5.7 5.7 0 1 0 5.8 8.5A4.7 4.7 0 1 1 8.7 1.5z" />
+            </svg>
+          </span>
+        </button>
         <div className="relative">
           <button className="btn" type="button" onClick={() => setMenu((open) => !open)}>
             {ready.user.displayName}
           </button>
           {menu && (
-            <div className="absolute right-0 z-30 mt-1 w-44 rounded-control bg-surface p-1 shadow-lg">
-              <button className="block w-full px-2 py-2 text-left" type="button" onClick={() => { setMenu(false); setPasswordOpen(true); }}>
+            <div className="absolute right-0 z-30 mt-1 w-44 rounded-control border border-split bg-surface p-1 shadow-[var(--shadow-pop)]">
+              <button className="block w-full rounded-control px-2 py-2 text-left hover:bg-hover" type="button" onClick={() => { setMenu(false); setPasswordOpen(true); }}>
                 Change password
               </button>
               <button
-                className="block w-full px-2 py-2 text-left"
+                className="block w-full rounded-control px-2 py-2 text-left hover:bg-hover"
                 type="button"
                 onClick={() => void api('/api/logout', { method: 'POST' }).then(() => setSession({ state: 'login' }))}
               >

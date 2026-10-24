@@ -751,7 +751,7 @@ export function Explorer({
             <div className="relative">
               <Cmd icon="new" label="New" onClick={() => setNewOpen((open) => !open)} />
               {newOpen && (
-                <div className="absolute left-0 z-20 mt-1 w-40 rounded-control bg-surface p-1 shadow-lg">
+                <div className="absolute left-0 z-20 mt-1 w-40 rounded-control border border-split bg-surface p-1 shadow-[var(--shadow-pop)]">
                   <button className="nav-item" type="button" onClick={() => { setNewOpen(false); setDialog({ type: 'folder', value: '' }); }}>
                     <Icon name="folder" size={16} />
                     New folder

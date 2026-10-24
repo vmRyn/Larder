@@ -59,7 +59,7 @@ function paint(text: string, ext: string): ReactNode[] {
           : keys.has(token)
             ? 'keyword'
             : '';
-    const className = kind === 'comment' ? 'text-muted' : kind === 'string' ? 'text-[#ce9178]' : kind === 'keyword' ? 'text-accent' : kind === 'number' ? 'text-[#b5cea8]' : '';
+    const className = kind === 'comment' ? 'text-muted' : kind === 'string' ? 'text-[var(--color-code-string)]' : kind === 'keyword' ? 'text-accent' : kind === 'number' ? 'text-[var(--color-code-number)]' : '';
     parts.push(className ? <span key={index} className={className}>{token}</span> : token);
     index += 1;
     last = start + token.length;
