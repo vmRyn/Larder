@@ -12,7 +12,7 @@ Larder runs on the machine that holds the files. You open it in a browser, on th
 
 ![The Documents folder in Larder](docs/images/files.png)
 
-A shell stays in SSH. Larder does not open a terminal in the browser.
+Admins can open a terminal in the browser. It is a shell on the machine, as the account that runs Larder.
 
 ## What you can do
 
@@ -106,7 +106,7 @@ These are the things still worth handling on a live server.
 
 Not built yet, and useful later: opening a folder over WebDAV, a second step at sign-in, a size limit on a folder grant, and changing permissions on Linux.
 
-A terminal in the browser, editing Office documents, a photo library, and searching inside file contents are outside what Larder is for.
+Editing Office documents, a photo library, and searching inside file contents are outside what Larder is for.
 
 If you hit a bug, or you want one of those, message Ryn on Discord at Rynfreshly.
 

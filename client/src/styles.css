@@ -561,6 +561,15 @@ img.icon {
     opacity: 1;
     transform: scale(1);
   }
+  .terminal-host {
+    min-height: 0;
+    flex: 1;
+    background: var(--color-page);
+    padding: 8px 4px 8px 12px;
+  }
+  .terminal-host .xterm {
+    height: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

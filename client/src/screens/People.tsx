@@ -75,6 +75,7 @@ const actions: Record<string, string> = {
   extract: 'Extracted a zip',
   restore: 'Restored from trash',
   empty_trash: 'Emptied trash',
+  terminal: 'Opened a terminal',
 };
 
 export function Users({ you, onChanged }: { you: string; onChanged: () => void }) {
@@ -729,7 +730,7 @@ export function Activity() {
           <div key={`${row.t}-${index}`} className="grid grid-cols-[160px_100px_120px_1fr] gap-3 border-b border-line py-1 text-muted">
             <span>{formatStamp(Date.parse(row.t))}</span>
             <span className="text-ink">{row.user}</span>
-            <span>{row.action}</span>
+            <span>{actions[row.action] ?? row.action}</span>
             <span className="truncate">{row.root ? `${row.root}/${row.path}` : ''}</span>
           </div>
         ))}

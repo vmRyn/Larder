@@ -83,17 +83,28 @@ function frameHeaders(c: Context) {
   c.header('Content-Security-Policy', "frame-ancestors 'self'");
 }
 
-async function renewSession(c: Context, username: string) {
+async function renewSession(c: Context<AppEnv>, username: string) {
   await destroyUserSessions(username);
-  setCookie(c, COOKIE, await createSession(username), cookieOptions(c.req.url));
+  setCookie(c, COOKIE, await createSession(username), cookieOptions(c));
 }
 
-function cookieOptions(url: string) {
+function isLoopback(address: string | undefined): boolean {
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+
+function requestUrl(c: Context<AppEnv>): URL {
+  const url = new URL(c.req.url);
+  const remote = c.env?.incoming?.socket?.remoteAddress;
+  if (isLoopback(remote) && c.req.header('x-forwarded-proto') === 'https') url.protocol = 'https:';
+  return url;
+}
+
+function cookieOptions(c: Context<AppEnv>) {
   return {
     httpOnly: true,
     sameSite: 'Lax' as const,
     path: '/',
-    secure: new URL(url).protocol === 'https:',
+    secure: requestUrl(c).protocol === 'https:',
     maxAge: 60 * 60 * 24 * 7,
   };
 }
@@ -122,7 +133,12 @@ function conflictMode(value: unknown): 'replace' | 'keep' | undefined {
 }
 
 function addressOf(c: Context<AppEnv>): string {
-  return c.env?.incoming?.socket?.remoteAddress ?? 'local';
+  const remote = c.env?.incoming?.socket?.remoteAddress ?? '';
+  if (isLoopback(remote)) {
+    const forwarded = c.req.header('cf-connecting-ip')?.trim() ?? '';
+    if (/^[0-9a-fA-F:.]+$/.test(forwarded)) return forwarded;
+  }
+  return remote || 'local';
 }
 
 async function signedIn(c: Context): Promise<ConfigUser> {
@@ -226,7 +242,7 @@ export function createApp(): Hono<AppEnv> {
       });
     });
     const id = await createSession(username);
-    setCookie(c, COOKIE, id, cookieOptions(c.req.url));
+    setCookie(c, COOKIE, id, cookieOptions(c));
     await logActivity({ user: username, action: 'login', root: '', path: '' });
     return c.json({ ok: true });
   });
@@ -252,7 +268,7 @@ export function createApp(): Hono<AppEnv> {
     }
     loginSucceeded(key);
     const id = await createSession(user.username);
-    setCookie(c, COOKIE, id, cookieOptions(c.req.url));
+    setCookie(c, COOKIE, id, cookieOptions(c));
     await logActivity({ user: user.username, action: 'login', root: '', path: '' });
     return c.json({ ok: true });
   });
@@ -947,7 +963,7 @@ export function createApp(): Hono<AppEnv> {
     const shares = await listShares(user);
     if (!shares.some((share) => share.id === id)) throw new ApiError(404, 'not_found', 'That link is not there.');
     const { default: QRCode } = await import('qrcode');
-    const svg = await QRCode.toString(`${new URL(c.req.url).origin}/s/${id}`, { type: 'svg', margin: 1, color: { dark: '#ffffff', light: '#202020' } });
+    const svg = await QRCode.toString(`${requestUrl(c).origin}/s/${id}`, { type: 'svg', margin: 1, color: { dark: '#ffffff', light: '#202020' } });
     return c.body(svg, 200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'private, no-store' });
   });
 
@@ -1051,7 +1067,7 @@ export function createApp(): Hono<AppEnv> {
       httpOnly: true,
       sameSite: 'Lax',
       path: `/s/${id}`,
-      secure: new URL(c.req.url).protocol === 'https:',
+      secure: requestUrl(c).protocol === 'https:',
       maxAge: 600,
     });
     try {
@@ -1082,7 +1098,7 @@ export function createApp(): Hono<AppEnv> {
     const user = findUser(username);
     if (!user) return c.html(joinScreen({ missing: true }), 404);
     const sessionId = await createSession(user.username);
-    setCookie(c, COOKIE, sessionId, cookieOptions(c.req.url));
+    setCookie(c, COOKIE, sessionId, cookieOptions(c));
     await logActivity({ user: user.username, action: 'user', root: '', path: username });
     return c.redirect('/');
   });

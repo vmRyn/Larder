@@ -26,6 +26,7 @@ export type IconName =
   | 'up'
   | 'search'
   | 'info'
+  | 'terminal'
   | 'extract'
   | 'eye'
   | 'open'

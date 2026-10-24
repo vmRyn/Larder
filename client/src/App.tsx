@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { api, session as loadSession, type Favorite, type Session } from './api';
 import { formatBytes } from './format';
 import { Dialog } from './components/Dialog';
@@ -13,7 +13,9 @@ import { Shared } from './screens/Shared';
 import { Login } from './screens/Login';
 import { Setup } from './screens/Setup';
 
-type Page = 'files' | 'users' | 'activity' | 'shared' | 'health' | 'about';
+const TerminalPane = lazy(() => import('./screens/Terminal').then((mod) => ({ default: mod.TerminalPane })));
+
+type Page = 'files' | 'users' | 'activity' | 'shared' | 'health' | 'about' | 'terminal';
 
 function useNarrow() {
   const [narrow, setNarrow] = useState(window.matchMedia('(max-width: 959px)').matches);
@@ -51,7 +53,7 @@ export function App() {
   useEffect(() => {
     const block = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('input, textarea, select')) return;
+      if (target?.closest('input, textarea, select, .xterm')) return;
       event.preventDefault();
     };
     document.addEventListener('contextmenu', block);
@@ -231,6 +233,10 @@ export function App() {
               <Icon name="info" />
               <span>Health</span>
             </button>
+            <button className="nav-item" data-active={page === 'terminal'} type="button" onClick={() => { setPage('terminal'); setSidebar(false); }}>
+              <Icon name="terminal" />
+              <span>Terminal</span>
+            </button>
           </>
         )}
         <button className="nav-item" data-active={page === 'about'} type="button" onClick={() => { setPage('about'); setSidebar(false); }}>
@@ -251,7 +257,7 @@ export function App() {
         )}
         <div className="font-[560]">Larder</div>
         <div className="min-w-0 flex-1 truncate text-muted">
-          {page === 'files' ? root?.name : page === 'users' ? 'Users' : page === 'shared' ? 'Shared' : page === 'health' ? 'Health' : page === 'about' ? 'About' : 'Activity'}
+          {page === 'files' ? root?.name : page === 'users' ? 'Users' : page === 'shared' ? 'Shared' : page === 'health' ? 'Health' : page === 'about' ? 'About' : page === 'terminal' ? 'Terminal' : 'Activity'}
         </div>
         <button
           className="theme-switch"
@@ -332,6 +338,11 @@ export function App() {
         {page === 'activity' && <Activity />}
         {page === 'health' && <Health />}
         {page === 'about' && <About />}
+        {page === 'terminal' && (
+          <Suspense fallback={<p className="p-6 text-muted">Loading…</p>}>
+            <TerminalPane />
+          </Suspense>
+        )}
         {page === 'shared' && (
           <Shared
             roots={ready.roots}
